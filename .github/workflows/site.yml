@@ -1,0 +1,77 @@
+name: Site
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  workflow_dispatch:
+
+# The site always advertises the latest tagged release. Every push to main
+# and every tag rebuilds + redeploys the site; cancel in-flight deploys so
+# only the newest one wins.
+concurrency:
+  group: site-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve latest release tag
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Prefer the latest published release; fall back to the highest v* tag.
+          TAG=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || true)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            TAG=$(git -C "$GITHUB_WORKSPACE" tag --list 'v*' --sort=-v:refname | head -n1)
+          fi
+          # If we're building *because of* a tag push, prefer that tag.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Latest release tag: ${TAG:-<none>}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci
+
+      - name: Build site
+        env:
+          PUBLIC_LATEST_TAG: ${{ steps.latest.outputs.tag }}
+          PUBLIC_RELEASES_BASE: https://github.com/${{ github.repository }}/releases
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

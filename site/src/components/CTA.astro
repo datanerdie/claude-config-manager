@@ -1,0 +1,21 @@
+---
+import DownloadButtons from "./DownloadButtons.astro";
+---
+
+<section class="relative py-24 md:py-32 border-t border-hairline overflow-hidden">
+  <div class="absolute inset-0 bg-mesh pointer-events-none"></div>
+
+  <div class="relative max-w-4xl mx-auto px-6 text-center">
+    <h2 class="text-4xl md:text-6xl font-bold tracking-tight text-balance">
+      Stop hunting for config files.
+    </h2>
+    <p class="mt-6 text-lg md:text-xl text-ink-300 text-pretty max-w-2xl mx-auto">
+      CCM is free and open source. Download it for your platform and see every
+      Claude config you've ever written, in one window.
+    </p>
+
+    <div class="mt-10 flex justify-center">
+      <DownloadButtons size="lg" align="center" />
+    </div>
+  </div>
+</section>

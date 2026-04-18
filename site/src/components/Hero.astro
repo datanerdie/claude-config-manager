@@ -1,0 +1,201 @@
+---
+import DownloadButtons from "./DownloadButtons.astro";
+import pkg from "../../../package.json";
+
+const version = `v${pkg.version}`;
+
+const kindRows = [
+  { name: "Agents", count: 12 },
+  { name: "Commands", count: 8 },
+  { name: "Skills", count: 5, active: true },
+  { name: "Rules", count: 3 },
+  { name: "Hooks", count: 2 },
+  { name: "MCP Servers", count: 4 },
+  { name: "Memory", count: 17 },
+];
+
+const listItems = [
+  { name: "git-worktree-manager", desc: "Create, switch, cleanup worktrees", active: true },
+  { name: "schema-migration-helper", desc: "Write and review DB migrations", dirty: true },
+  { name: "shiki-code-highlight", desc: "Syntax-highlight code fences" },
+  { name: "test-triage", desc: "Parse test failures into fix tasks" },
+  { name: "commit-message-writer", desc: "Draft conventional commits" },
+];
+
+---
+
+<section class="relative overflow-hidden">
+  <div class="absolute inset-0 bg-mesh pointer-events-none"></div>
+  <div class="absolute inset-0 bg-grid pointer-events-none"></div>
+
+  <div class="relative max-w-6xl mx-auto px-6 pt-10 pb-24 md:pt-14 md:pb-32">
+    <a
+      href="#kinds"
+      class="animate-fade-up inline-flex items-center gap-2 text-xs font-medium tracking-wide uppercase px-3 py-1.5 rounded-full border border-hairline bg-ink-900/50 text-ink-300 hover:text-ink-100 transition-colors"
+    >
+      <span class="relative flex h-1.5 w-1.5">
+        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60"></span>
+        <span class="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent"></span>
+      </span>
+      <span>{version} — Early access</span>
+    </a>
+
+    <h1
+      class="animate-fade-up delay-100 mt-8 text-5xl md:text-7xl font-bold tracking-tight leading-[1.02] text-balance"
+    >
+      Every Claude config.
+      <br />
+      <span class="bg-gradient-to-r from-accent via-accent-soft to-accent bg-clip-text text-transparent">
+        One place.
+      </span>
+    </h1>
+
+    <p
+      class="animate-fade-up delay-200 mt-8 max-w-2xl text-lg md:text-xl text-ink-300 text-pretty leading-relaxed"
+    >
+      CCM is a native desktop app for managing Claude Code — agents, commands,
+      skills, memory, rules, hooks, MCP servers, and more — across every
+      project you touch.
+    </p>
+
+    <div class="animate-fade-up delay-300 mt-10">
+      <DownloadButtons />
+    </div>
+
+    <div class="animate-fade-up delay-400 mt-12 relative">
+      <div class="absolute -inset-x-8 -inset-y-4 bg-gradient-to-b from-accent/20 via-transparent to-transparent blur-3xl opacity-50 pointer-events-none"></div>
+
+      <div class="relative rounded-xl border border-hairline bg-ink-950 overflow-hidden shadow-glow">
+        <div class="flex items-center gap-1.5 px-4 py-3 border-b border-hairline bg-ink-900/80">
+          <span class="h-3 w-3 rounded-full bg-ink-700"></span>
+          <span class="h-3 w-3 rounded-full bg-ink-700"></span>
+          <span class="h-3 w-3 rounded-full bg-ink-700"></span>
+          <span class="ml-3 text-xs font-mono text-ink-400">CCM — Claude Code Manager</span>
+          <span class="ml-auto text-[10px] font-mono text-ink-500 hidden sm:inline">⌘K</span>
+        </div>
+
+        <div class="grid grid-cols-12 text-sm h-[440px] md:h-[520px]">
+          <!-- Sidebar -->
+          <aside class="col-span-3 border-r border-hairline bg-ink-950 flex flex-col overflow-hidden">
+            <div class="p-2 space-y-0.5">
+              <div class="text-[10px] uppercase tracking-widest text-ink-500 px-2 pt-2 pb-1.5 font-semibold">Scopes</div>
+              <div class="px-2 py-1.5 rounded text-ink-300 hover:bg-ink-900 cursor-default">
+                <div class="text-[13px]">Global</div>
+                <div class="text-[10px] font-mono text-ink-500 truncate">~/.claude</div>
+              </div>
+              <div class="relative px-2 py-1.5 rounded bg-ink-900 cursor-default">
+                <span class="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-accent rounded-r"></span>
+                <div class="text-[13px] text-ink-100">openfront</div>
+                <div class="text-[10px] font-mono text-ink-500 truncate">~/code/openfront</div>
+              </div>
+              <div class="px-2 py-1.5 rounded text-ink-300 hover:bg-ink-900 cursor-default">
+                <div class="text-[13px]">ccm</div>
+                <div class="text-[10px] font-mono text-ink-500 truncate">~/ext/ccm</div>
+              </div>
+            </div>
+
+            <div class="p-2 space-y-px mt-2">
+              <div class="text-[10px] uppercase tracking-widest text-ink-500 px-2 pt-2 pb-1.5 font-semibold">Configuration</div>
+              {kindRows.map(({ name, count, active }) => (
+                <div class:list={[
+                  "relative flex items-center justify-between px-2 py-1.5 rounded cursor-default",
+                  active ? "bg-ink-900" : "hover:bg-ink-900/60",
+                ]}>
+                  {active && <span class="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-accent rounded-r"></span>}
+                  <span class={active ? "text-[13px] text-ink-100" : "text-[13px] text-ink-300"}>{name}</span>
+                  <span class="text-[10px] font-mono text-ink-500">{count}</span>
+                </div>
+              ))}
+            </div>
+
+            <div class="mt-auto p-3 border-t border-hairline flex items-center justify-between text-[11px] text-ink-500">
+              <span class="font-mono">{version}</span>
+              <svg viewBox="0 0 24 24" fill="none" class="h-3.5 w-3.5"><path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="currentColor" stroke-width="1.5"/><path d="M19 12a7 7 0 00-.1-1.2l2-1.5-2-3.4-2.4.9a7 7 0 00-2-1.2L14 3h-4l-.5 2.6a7 7 0 00-2 1.2L5 6l-2 3.4 2 1.5a7 7 0 000 2.2l-2 1.5 2 3.4 2.4-.9a7 7 0 002 1.2L10 21h4l.5-2.6a7 7 0 002-1.2l2.4.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z" stroke="currentColor" stroke-width="1.5"/></svg>
+            </div>
+          </aside>
+
+          <!-- ListPane -->
+          <section class="col-span-3 border-r border-hairline bg-ink-950 flex flex-col overflow-hidden">
+            <div class="p-2 border-b border-hairline flex items-center gap-2">
+              <div class="flex-1 flex items-center gap-2 px-2 py-1.5 rounded bg-ink-900 border border-hairline">
+                <svg viewBox="0 0 16 16" fill="none" class="h-3.5 w-3.5 text-ink-500"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5l3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <span class="text-[11px] text-ink-500">Search skills…</span>
+              </div>
+              <button class="text-[11px] text-ink-300 hover:text-ink-100 px-2 py-1 rounded hover:bg-ink-900">+ New</button>
+            </div>
+            <div class="flex-1 overflow-hidden p-1.5 space-y-0.5">
+              {listItems.map(({ name, desc, active, dirty }) => (
+                <div class:list={[
+                  "relative px-2.5 py-2 rounded cursor-default",
+                  active ? "bg-ink-900" : "hover:bg-ink-900/60",
+                ]}>
+                  {active && <span class="absolute left-0 top-2 bottom-2 w-0.5 bg-accent rounded-r"></span>}
+                  <div class="flex items-center gap-1.5">
+                    <span class={active ? "text-[12px] text-ink-100" : "text-[12px] text-ink-200"}>{name}</span>
+                    {dirty && <span class="h-1.5 w-1.5 rounded-full bg-accent"></span>}
+                  </div>
+                  <div class="text-[10px] text-ink-500 truncate mt-0.5">{desc}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <!-- EditPane -->
+          <section class="col-span-6 bg-ink-950 flex flex-col overflow-hidden">
+            <div class="px-4 py-3 border-b border-hairline">
+              <div class="flex items-center justify-between">
+                <div class="text-[13px] font-semibold text-ink-100 truncate">git-worktree-manager</div>
+                <div class="flex items-center gap-2 text-[10px] text-ink-500 shrink-0">
+                  <span class="font-mono">~3.2k tokens</span>
+                </div>
+              </div>
+              <div class="flex items-center justify-between mt-1">
+                <div class="text-[10px] font-mono text-ink-500 truncate">~/.claude/skills/git-worktree-manager.md</div>
+                <div class="flex items-center gap-1 text-[10px] text-ink-400 shrink-0">
+                  <button class="hover:text-ink-100">Copy to…</button>
+                  <span class="text-ink-700">·</span>
+                  <button class="hover:text-ink-100">Move</button>
+                </div>
+              </div>
+            </div>
+            <div class="flex-1 overflow-hidden p-4 space-y-3 text-[12px]">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-ink-500 mb-1">Name</div>
+                <div class="font-mono text-ink-200">git-worktree-manager</div>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-ink-500 mb-1">License</div>
+                  <div class="font-mono text-ink-200">MIT</div>
+                </div>
+                <div>
+                  <div class="text-[10px] uppercase tracking-wider text-ink-500 mb-1">Tools</div>
+                  <div class="flex flex-wrap gap-1">
+                    <span class="px-1.5 py-0.5 rounded bg-ink-900 border border-hairline text-[10px] font-mono text-ink-300">Bash</span>
+                    <span class="px-1.5 py-0.5 rounded bg-ink-900 border border-hairline text-[10px] font-mono text-ink-300">Read</span>
+                    <span class="px-1.5 py-0.5 rounded bg-ink-900 border border-hairline text-[10px] font-mono text-ink-300">Edit</span>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-ink-500 mb-1">Body</div>
+                <div class="rounded border border-hairline bg-ink-900/60 p-2.5 font-mono text-[11px] leading-relaxed text-ink-300 space-y-1">
+                  <div><span class="text-accent"># Git Worktree Manager</span></div>
+                  <div class="h-1"></div>
+                  <div>Create and manage git worktrees</div>
+                  <div>without leaving Claude Code.</div>
+                  <div class="h-1"></div>
+                  <div><span class="text-accent">## When to use</span></div>
+                  <div>When the user wants to work on</div>
+                  <div>multiple branches <span class="bg-accent/20 text-accent px-0.5 rounded">in parallel</span></div>
+                  <div>without stashing changes.</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

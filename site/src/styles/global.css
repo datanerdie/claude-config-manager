@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-ink-50: #fafafa;
+  --color-ink-100: #f4f4f5;
+  --color-ink-200: #e4e4e7;
+  --color-ink-300: #a1a1aa;
+  --color-ink-400: #71717a;
+  --color-ink-500: #52525b;
+  --color-ink-600: #3f3f46;
+  --color-ink-700: #27272a;
+  --color-ink-800: #18181b;
+  --color-ink-900: #09090b;
+  --color-ink-950: #050507;
+
+  --color-accent: #ff6b35;
+  --color-accent-soft: #ffa07a;
+  --color-accent-glow: #ff4d1f;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    background: var(--color-ink-950);
+    color: var(--color-ink-100);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    font-feature-settings: "ss01", "cv11";
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: var(--color-ink-950);
+  }
+}
+
+@layer utilities {
+  .bg-mesh {
+    background-image:
+      radial-gradient(
+        ellipse 80% 50% at 20% 0%,
+        rgba(255, 107, 53, 0.15),
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 60% 40% at 80% 10%,
+        rgba(99, 102, 241, 0.12),
+        transparent 55%
+      ),
+      radial-gradient(
+        ellipse 50% 60% at 50% 100%,
+        rgba(168, 85, 247, 0.08),
+        transparent 60%
+      );
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 80%);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  .text-pretty {
+    text-wrap: pretty;
+  }
+
+  .border-hairline {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .ring-hairline {
+    --tw-ring-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .shadow-glow {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 20px 60px -20px rgba(255, 107, 53, 0.35);
+  }
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-up {
+    animation: fade-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .delay-100 {
+    animation-delay: 0.1s;
+  }
+  .delay-200 {
+    animation-delay: 0.2s;
+  }
+  .delay-300 {
+    animation-delay: 0.3s;
+  }
+  .delay-400 {
+    animation-delay: 0.4s;
+  }
+}

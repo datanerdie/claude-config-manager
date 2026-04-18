@@ -1,0 +1,63 @@
+---
+const features = [
+  {
+    title: "Every project, one window",
+    body: "Your global config and every project's .claude folder, side by side. No more hunting through directories.",
+    icon: `<path d="M3 5h7v7H3zM14 5h7v4h-7zM14 13h7v6h-7zM3 16h7v3H3z" stroke="currentColor" stroke-width="1.6"/>`,
+  },
+  {
+    title: "Move things where they belong",
+    body: "Promote a project agent to global. Copy a user skill into one specific repo. Scope it right without copy-pasting YAML.",
+    icon: `<path d="M7 7h10v10H7zM3 3v6M3 3h6M21 21v-6M21 21h-6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
+  },
+  {
+    title: "Catch broken references",
+    body: "When a command points at a skill that no longer exists, CCM flags it — before it breaks your next session.",
+    icon: `<path d="M10 14L5 9l-2 2 7 7L21 8l-2-2-9 8z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M17 3l-3 3M21 7l-3-3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
+  },
+  {
+    title: "Follow the graph",
+    body: "Every entity shows what uses it and what it uses. Jump from a command to its agent to the skill it imports.",
+    icon: `<circle cx="5" cy="6" r="2.2" stroke="currentColor" stroke-width="1.6"/><circle cx="19" cy="6" r="2.2" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="18" r="2.2" stroke="currentColor" stroke-width="1.6"/><path d="M7 7l4 9M17 7l-4 9M7 6h10" stroke="currentColor" stroke-width="1.6"/>`,
+  },
+  {
+    title: "Search everything",
+    body: "Filter by name, description, or body. ⌘K jumps to any agent, command, or conversation — across every scope.",
+    icon: `<circle cx="11" cy="11" r="6" stroke="currentColor" stroke-width="1.6"/><path d="M16 16l4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
+  },
+  {
+    title: "Browse your history",
+    body: "Every past Claude session, grouped by project. Revisit a conversation or archive the ones worth keeping.",
+    icon: `<path d="M4 6h16v10H13l-4 3v-3H4V6z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 10h8M8 13h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>`,
+  },
+];
+---
+
+<section id="features" class="relative py-24 md:py-32 border-t border-hairline">
+  <div class="max-w-6xl mx-auto px-6">
+    <div class="max-w-2xl">
+      <div class="text-xs font-mono uppercase tracking-widest text-accent">Features</div>
+      <h2 class="mt-3 text-4xl md:text-5xl font-bold tracking-tight text-balance">
+        One window to manage it all.
+      </h2>
+      <p class="mt-5 text-lg text-ink-300 text-pretty">
+        Stop hunting for files. Stop copying YAML. Stop wondering which
+        project's config actually applies.
+      </p>
+    </div>
+
+    <div class="mt-14 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-px bg-ink-800/60 border border-hairline rounded-2xl overflow-hidden">
+      {features.map(({ title, body, icon }) => (
+        <div class="group relative bg-ink-950 p-7 hover:bg-ink-900/60 transition-colors">
+          <div class="flex items-center gap-3">
+            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-ink-900 border border-hairline text-accent group-hover:text-accent-soft transition-colors">
+              <svg viewBox="0 0 24 24" fill="none" class="h-4 w-4" set:html={icon} />
+            </div>
+            <h3 class="text-base font-semibold tracking-tight text-ink-100">{title}</h3>
+          </div>
+          <p class="mt-3 text-sm leading-relaxed text-ink-400 text-pretty">{body}</p>
+        </div>
+      ))}
+    </div>
+  </div>
+</section>
