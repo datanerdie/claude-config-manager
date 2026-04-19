@@ -41,6 +41,12 @@ export const fs = {
     invoke('scan_for_projects', { root, maxDepth }),
   onChange: (cb: (ev: FsChange) => void): Promise<UnlistenFn> =>
     listen<FsChange>('fs:change', (e) => cb(e.payload)),
+  runClaudeCli: (
+    args: string[],
+    timeoutMs?: number,
+  ): Promise<{ stdout: string; stderr: string; exit_code: number }> =>
+    invoke('run_claude_cli', { args, timeoutMs }),
+  openExternal: (target: string): Promise<void> => invoke('open_external', { target }),
 }
 
 export const readTextOrNull = async (path: string): Promise<string | null> => {

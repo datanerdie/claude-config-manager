@@ -7,6 +7,7 @@ import { ruleDescriptor } from './rule'
 import { hookDescriptor } from './hook'
 import { mcpDescriptor } from './mcp'
 import { pluginDescriptor } from './plugin'
+import { marketplaceDescriptor } from './marketplace'
 import { claudemdDescriptor } from './claudemd'
 import { memoryDescriptor } from './memory'
 import { conversationDescriptor } from './conversation'
@@ -24,6 +25,7 @@ export const descriptors: Record<Kind, UiDescriptor<any>> = {
   hook: hookDescriptor,
   mcp: mcpDescriptor,
   plugin: pluginDescriptor,
+  marketplace: marketplaceDescriptor,
   conversation: conversationDescriptor,
 }
 

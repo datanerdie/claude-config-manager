@@ -21,11 +21,13 @@ export function Field({ label, hint, error, orientation = 'column', children }: 
     return (
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="text-sm text-zinc-200">{label}</div>
+          {/* leading-none drops the line-height padding so the glyph's visual
+              center aligns with the centered control next to it. */}
+          <div className="text-sm text-zinc-200 leading-none">{label}</div>
           {hint && !error && (
-            <div className="text-xs text-zinc-500 mt-0.5">{hint}</div>
+            <div className="text-xs text-zinc-500 mt-1">{hint}</div>
           )}
-          {error && <div className="text-xs text-red-400 mt-0.5">{error}</div>}
+          {error && <div className="text-xs text-red-400 mt-1">{error}</div>}
         </div>
         <div className="shrink-0">{children}</div>
       </div>

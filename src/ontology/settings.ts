@@ -8,6 +8,8 @@ export const Settings = z.object({
     .default({ apiKey: '' }),
   markdownDefaultMode: z.enum(['edit', 'read']).default('edit'),
   checkUpdatesOnStartup: z.boolean().default(true),
+  /** Plugin ids (`<name>@<marketplace>`) the user has flagged for an upcoming update. */
+  markedPlugins: z.array(z.string()).default([]),
 })
 export type Settings = z.infer<typeof Settings>
 

@@ -49,6 +49,7 @@ interface EntitiesByKind {
   hook: Entity<any>[]
   mcp: Entity<any>[]
   plugin: Entity<any>[]
+  marketplace: Entity<any>[]
   conversation: Entity<any>[]
 }
 
@@ -62,6 +63,7 @@ const emptyBuckets = (): EntitiesByKind => ({
   hook: [],
   mcp: [],
   plugin: [],
+  marketplace: [],
   conversation: [],
 })
 
@@ -78,6 +80,14 @@ interface State {
   lastError: string | null
   selections: Record<string, string>
   settings: Settings
+  /**
+   * In-flight async operations keyed by `<op>:<target>` (e.g. `install:open-prose@prose`).
+   * Reactive — UI subscribes to check whether a specific button should show a spinner
+   * or be disabled. Set semantics so concurrent ops on different targets coexist.
+   */
+  pendingOps: Set<string>
+  /** Active tab id per kind (kinds with `tabs` on their descriptor). */
+  activeTab: Record<string, string>
 }
 
 interface Actions {
@@ -97,6 +107,20 @@ interface Actions {
   addProject: (path: string, name?: string) => Promise<void>
   removeProject: (project: Project) => Promise<void>
   updateSettings: (next: Settings) => void
+  /**
+   * Run an async operation while marking it pending in `pendingOps`. The caller
+   * supplies a stable key (e.g. `install:open-prose@prose`) that UI can observe
+   * to render spinners / disable buttons specific to that target.
+   */
+  runOp: <T>(key: string, fn: () => Promise<T>) => Promise<T>
+  setActiveTab: (kind: Kind, tabId: string) => void
+  /**
+   * Persist a new entity value immediately (no debounce, no optimistic update).
+   * Use when a mutation needs to happen *durably before* the UI reflects it —
+   * e.g. plugin enable/disable, where an orange "in-progress" indicator only
+   * makes sense if we don't lie with an optimistic flip.
+   */
+  saveEntity: (entity: Entity<any>, next: any) => Promise<void>
 }
 
 type Store = State & Actions
@@ -156,6 +180,8 @@ export const useStore = create<Store>((set, get) => ({
   lastError: null,
   selections: {},
   settings: defaultSettings(),
+  pendingOps: new Set<string>(),
+  activeTab: {},
 
   bootstrap: async () => {
     try {
@@ -375,5 +401,30 @@ export const useStore = create<Store>((set, get) => ({
       const { home, settings } = get()
       if (home) void saveSettings(home, settings)
     }, 300)
+  },
+
+  setActiveTab: (kind, tabId) =>
+    set((s) => ({ activeTab: { ...s.activeTab, [kind]: tabId } })),
+
+  saveEntity: async (entity, next) => {
+    const ctx = resolveContext(get())
+    if (!ctx) throw new Error('No location for scope')
+    await adapterWrite({ loc: ctx.loc, home: ctx.home }, entity, next)
+  },
+
+  runOp: async (key, fn) => {
+    if (get().pendingOps.has(key)) {
+      throw new Error(`${key} is already in progress`)
+    }
+    set((s) => ({ pendingOps: new Set(s.pendingOps).add(key) }))
+    try {
+      return await fn()
+    } finally {
+      set((s) => {
+        const next = new Set(s.pendingOps)
+        next.delete(key)
+        return { pendingOps: next }
+      })
+    }
   },
 }))

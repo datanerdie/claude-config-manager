@@ -300,3 +300,12 @@ body {
   color: #71717a;
   letter-spacing: 0.05em;
 }
+
+/* Sonner toasts: keep the dark surface but accent the icon for success/error.
+   We avoid `richColors` because it repaints the entire toast. */
+[data-sonner-toast][data-type='success'] [data-icon] {
+  color: #34d399; /* emerald-400 */
+}
+[data-sonner-toast][data-type='error'] [data-icon] {
+  color: #f87171; /* red-400 (matches --color-danger) */
+}

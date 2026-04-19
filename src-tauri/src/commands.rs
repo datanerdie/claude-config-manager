@@ -302,3 +302,94 @@ pub fn unwatch_all(state: State<'_, WatcherState>) -> Result<(), String> {
     *guard = None;
     Ok(())
 }
+
+/// Open a URL or file path in the user's default handler (browser, etc.).
+/// Platform-specific: uses `cmd /C start` on Windows, `open` on macOS, `xdg-open` on Linux.
+#[tauri::command]
+pub async fn open_external(target: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        // `start` treats the first quoted arg as a window title, so pass an empty "".
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "start", "", &target])
+            .status()
+            .map_err(to_err)?;
+        if !status.success() {
+            return Err(format!("cmd start exited with {}", status));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg(&target)
+            .status()
+            .map_err(to_err)?;
+        if !status.success() {
+            return Err(format!("open exited with {}", status));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let status = std::process::Command::new("xdg-open")
+            .arg(&target)
+            .status()
+            .map_err(to_err)?;
+        if !status.success() {
+            return Err(format!("xdg-open exited with {}", status));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct CliResult {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+/// Spawn the `claude` CLI with the given arguments.
+///
+/// On Windows the CLI is typically installed as a `.cmd` shim, so we invoke
+/// it via `cmd /C` to let the shell resolve the binary. On other platforms
+/// we exec the binary directly.
+#[tauri::command]
+pub async fn run_claude_cli(
+    args: Vec<String>,
+    timeout_ms: Option<u64>,
+) -> Result<CliResult, String> {
+    let timeout = std::time::Duration::from_millis(timeout_ms.unwrap_or(300_000));
+
+    let mut command = if cfg!(target_os = "windows") {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg("claude");
+        for a in &args {
+            c.arg(a);
+        }
+        c
+    } else {
+        let mut c = tokio::process::Command::new("claude");
+        for a in &args {
+            c.arg(a);
+        }
+        c
+    };
+
+    let child = command
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("failed to spawn claude CLI: {e}"))?;
+
+    let output = tokio::time::timeout(timeout, child.wait_with_output())
+        .await
+        .map_err(|_| format!("claude CLI timed out after {}ms", timeout.as_millis()))?
+        .map_err(|e| format!("failed to read claude CLI output: {e}"))?;
+
+    Ok(CliResult {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        exit_code: output.status.code().unwrap_or(-1),
+    })
+}

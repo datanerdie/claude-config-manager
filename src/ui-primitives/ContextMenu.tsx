@@ -9,6 +9,12 @@ export interface ContextMenuItem {
   group?: string
   disabled?: boolean
   destructive?: boolean
+  /** When rendered as a header button, shows a spinner and stays disabled. */
+  pending?: boolean
+  /** Optional leading icon. Rendered in the inspector header only; never in the context menu. */
+  icon?: import('react').ReactNode
+  /** Header-only: when true the button renders in the success (green) color (for stateful toggles). */
+  active?: boolean
 }
 
 interface ContextMenuState {

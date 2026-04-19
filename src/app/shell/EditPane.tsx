@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useState, useRef } from 'react'
 import { useStore } from '@/app/store'
 import { descriptorFor } from '@/ui-descriptors'
-import { Inspector, cn } from '@/ui-primitives'
+import { Inspector, cn, type ContextMenuItem } from '@/ui-primitives'
 import type { AnyEntity, Entity, Scope } from '@/ontology'
 import { kindSpecs } from '@/ontology'
 import { referencesFrom, referrersOf, kindParticipatesInRefs, type Reference } from '@/engine'
@@ -21,6 +21,12 @@ export function EditPane() {
   const deleteExisting = useStore((s) => s.deleteExisting)
   const copyToScope = useStore((s) => s.copyToScope)
   const moveToScope = useStore((s) => s.moveToScope)
+  const createIn = useStore((s) => s.createIn)
+  const home = useStore((s) => s.home)
+  const scope = useStore((s) => s.scope)
+  // Subscribe to pendingOps so descriptor.customActions re-renders when an op
+  // starts/finishes — keeps header buttons reactive (spinner, disabled state).
+  useStore((s) => s.pendingOps)
   const apiKey = useStore((s) => s.settings.anthropic.apiKey)
   const [tokenCount, setTokenCount] = useState<number | null>(null)
   const tokenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -56,7 +62,7 @@ export function EditPane() {
   const spec = kindSpecs[entity.kind]
   const readOnly = spec.readOnly ?? false
   const canScopeMove = !readOnly || (spec.allowScopeMove ?? false)
-  const canDelete = !readOnly
+  const canDelete = !readOnly && (descriptor.canDelete ? descriptor.canDelete(entity.value) : true)
 
   const incoming = referrersOf(entity.id, refs)
   const outgoing = referencesFrom(entity.id, refs)
@@ -64,12 +70,23 @@ export function EditPane() {
   const showRefs = kindParticipatesInRefs(entity.kind) && (incoming.length > 0 || outgoing.length > 0)
 
   const targets = copyMoveTargets(entity, projects)
+  const actionCtx = { scope, projects, home, createIn, remove: deleteExisting }
+  const headerActions =
+    descriptor.headerActions?.(entity, actionCtx) ??
+    descriptor.customActions?.(entity, actionCtx) ??
+    []
 
   return (
     <div className="flex-1 flex min-w-0">
       <div className="flex-1 min-w-0">
         <Inspector
-          title={<span>{descriptor.listLabel(entity.value) || entity.kind}</span>}
+          title={
+            <span>
+              {(descriptor.headerTitle
+                ? descriptor.headerTitle(entity.value)
+                : descriptor.listLabel(entity.value)) || entity.kind}
+            </span>
+          }
           subtitle={
             <span className="font-mono text-xs text-zinc-600 truncate flex items-center gap-2">
               <span className="truncate">
@@ -83,8 +100,11 @@ export function EditPane() {
             </span>
           }
           actions={
-            canScopeMove || canDelete ? (
+            headerActions.length > 0 || canScopeMove || canDelete ? (
               <>
+                {headerActions.map((a, i) => (
+                  <HeaderActionButton key={i} item={a} />
+                ))}
                 {canScopeMove && (
                   <>
                     <ScopeActionMenu
@@ -165,6 +185,41 @@ function Kbd({ children }: { children: React.ReactNode }) {
     <kbd className="mx-1 px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-xs font-mono">
       {children}
     </kbd>
+  )
+}
+
+/**
+ * Renders a descriptor's customAction as a small text button in the inspector
+ * header. Same data shape (`ContextMenuItem`) drives the right-click menu —
+ * one source of truth, two surfaces.
+ */
+function HeaderActionButton({ item }: { item: ContextMenuItem }) {
+  const disabled = item.disabled || item.pending || item.submenu !== undefined
+  const colorClass = item.destructive
+    ? 'text-zinc-500 hover:text-red-400'
+    : item.active
+      ? 'text-emerald-400 hover:text-emerald-300'
+      : 'text-zinc-400 hover:text-zinc-100'
+  return (
+    <button
+      type="button"
+      onClick={() => item.onSelect?.()}
+      disabled={disabled}
+      className={cn(
+        'text-xs px-2 py-1 inline-flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed',
+        colorClass,
+      )}
+    >
+      {item.pending ? (
+        <span
+          aria-hidden
+          className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"
+        />
+      ) : (
+        item.icon
+      )}
+      {item.label}
+    </button>
   )
 }
 

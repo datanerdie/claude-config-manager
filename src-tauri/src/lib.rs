@@ -24,6 +24,8 @@ pub fn run() {
             scan_for_projects,
             watch_paths,
             unwatch_all,
+            run_claude_cli,
+            open_external,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

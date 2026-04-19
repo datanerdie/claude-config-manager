@@ -10,52 +10,64 @@ export const PluginAuthor = z.object({
 })
 export type PluginAuthor = z.infer<typeof PluginAuthor>
 
+/** Where this entry was sourced from. */
+export const PluginState = z.enum(['installed', 'available', 'both'])
+export type PluginState = z.infer<typeof PluginState>
+
 /**
- * A Claude Code plugin install entry.
+ * A Claude Code plugin entry — may be installed, available in a marketplace
+ * catalog, or both. The adapter merges these sources by `<name>@<marketplace>`.
  *
- * Persisted state comes from two files:
+ * Persisted state spans:
  *   - ~/.claude/plugins/installed_plugins.json (registry: scope, installPath, version, timestamps)
  *   - ~/.claude/settings.json `enabledPlugins` map (enabled flag, keyed by `<name>@<marketplace>`)
- *
- * Manifest-derived fields (description, author, etc.) are read from
- *   `<installPath>/.claude-plugin/plugin.json`
- * at load time and are display-only — edits to them are discarded on write.
+ *   - ~/.claude/plugins/marketplaces/<mp>/.claude-plugin/marketplace.json (catalog: description, source, category)
+ *   - <installPath>/.claude-plugin/plugin.json (manifest, when installed)
  */
 export const Plugin = z.object({
-  // Identity (persisted in installed_plugins.json key/entry)
+  // Identity
   name: z.string().min(1),
   marketplace: z.string().min(1),
-  version: z.string().min(1),
 
-  // Install registry fields (persisted)
-  scope: PluginScope.default('user'),
-  installPath: z.string().default(''),
+  /** Where this entry came from. Drives which fields are meaningful and which actions apply. */
+  state: PluginState.default('available'),
+
+  // Installed-only (only meaningful when state includes 'installed')
+  version: z.string().optional(),
+  scope: PluginScope.optional(),
+  installPath: z.string().optional(),
   installedAt: z.string().optional(),
   lastUpdated: z.string().optional(),
-
-  // Cross-referenced from settings.json `enabledPlugins`
   enabled: z.boolean().default(false),
+  manifestFound: z.boolean().default(false),
 
-  // Manifest-derived (display-only, repopulated on every read)
+  // Catalog/manifest
   description: z.string().optional(),
   author: PluginAuthor.optional(),
   repository: z.string().optional(),
   homepage: z.string().optional(),
   keywords: z.array(z.string()).default([]),
   license: z.string().optional(),
-  manifestFound: z.boolean().default(false),
+  /** Marketplace catalog category (e.g. 'development', 'productivity'). */
+  category: z.string().optional(),
+  /** Marketplace catalog source descriptor — how the plugin would be fetched on install. */
+  source: z.unknown().optional(),
 })
 export type Plugin = z.infer<typeof Plugin>
 
 export const pluginKey = (p: Pick<Plugin, 'name' | 'marketplace'>): string =>
   `${p.name}@${p.marketplace}`
 
+export const isInstalled = (p: Plugin): boolean =>
+  p.state === 'installed' || p.state === 'both'
+
+export const isAvailable = (p: Plugin): boolean =>
+  p.state === 'available' || p.state === 'both'
+
 export const emptyPlugin = (name: string): Plugin => ({
   name,
   marketplace: '',
-  version: '',
-  scope: 'user',
-  installPath: '',
+  state: 'available',
   enabled: false,
   keywords: [],
   manifestFound: false,

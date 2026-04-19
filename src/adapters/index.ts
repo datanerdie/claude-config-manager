@@ -7,6 +7,11 @@ import { readRules, writeRule, deleteRule } from './ruleAdapter'
 import { readHooks, writeHook, deleteHook } from './hookAdapter'
 import { readMcpServers, writeMcpServer, deleteMcpServer } from './mcpAdapter'
 import { readPlugins, writePlugin, deletePlugin } from './pluginAdapter'
+import {
+  readMarketplaces,
+  writeMarketplace,
+  deleteMarketplace,
+} from './marketplaceAdapter'
 import { readClaudeMds, writeClaudeMd, deleteClaudeMd } from './claudemdAdapter'
 import { readMemories, writeMemoryEntry, deleteMemoryEntry } from './memoryAdapter'
 import {
@@ -30,6 +35,7 @@ export const readAll = async (loc: Location, home: string): Promise<AnyEntity[]>
     readHooks(loc),
     readMcpServers(loc, home),
     readPlugins(loc, home),
+    readMarketplaces(loc, home),
     readClaudeMds(loc),
     readMemories(loc, home),
     readConversations(loc, home),
@@ -57,6 +63,8 @@ export const readByKind = async (
       return readMcpServers(loc, home)
     case 'plugin':
       return readPlugins(loc, home)
+    case 'marketplace':
+      return readMarketplaces(loc, home)
     case 'claudemd':
       return readClaudeMds(loc)
     case 'memory':
@@ -98,6 +106,9 @@ export const writeEntity = async (
     case 'plugin':
       await writePlugin(ctx.loc, ctx.home, entity, nextValue)
       return
+    case 'marketplace':
+      await writeMarketplace(ctx.loc, ctx.home, entity, nextValue)
+      return
     case 'claudemd':
       await writeClaudeMd(ctx.loc, entity, nextValue)
       return
@@ -136,6 +147,9 @@ export const createEntity = async (
     case 'plugin':
       await writePlugin(ctx.loc, ctx.home, null, value)
       return
+    case 'marketplace':
+      await writeMarketplace(ctx.loc, ctx.home, null, value)
+      return
     case 'claudemd':
       await writeClaudeMd(ctx.loc, null, value)
       return
@@ -173,6 +187,9 @@ export const deleteEntity = async (
       return
     case 'plugin':
       await deletePlugin(ctx.loc, ctx.home, entity)
+      return
+    case 'marketplace':
+      await deleteMarketplace(ctx.loc, ctx.home, entity)
       return
     case 'claudemd':
       await deleteClaudeMd(ctx.loc, entity)

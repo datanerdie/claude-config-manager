@@ -21,3 +21,5 @@ export const userClaudeJson = (home: string): string => join(home, '.claude.json
 export const userPluginsDir = (home: string): string => join(home, '.claude', 'plugins')
 export const installedPluginsPath = (home: string): string =>
   join(userPluginsDir(home), 'installed_plugins.json')
+export const knownMarketplacesPath = (home: string): string =>
+  join(userPluginsDir(home), 'known_marketplaces.json')

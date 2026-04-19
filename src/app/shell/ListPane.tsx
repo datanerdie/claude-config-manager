@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from '@/app/store'
 import { descriptorFor } from '@/ui-descriptors'
-import { List, openContextMenu, prompt, type ContextMenuItem } from '@/ui-primitives'
+import { ColorDot, List, openContextMenu, prompt, type ContextMenuItem } from '@/ui-primitives'
 import { kindSpecs, type Entity } from '@/ontology'
 import { prefetchConversation } from '@/adapters'
 import { copyMoveTargets } from './targets'
+import { cn } from '@/ui-primitives/util'
 
 export function ListPane() {
   const kind = useStore((s) => s.kind)
@@ -25,19 +26,25 @@ export function ListPane() {
   const descriptor = descriptorFor(kind)
   const spec = kindSpecs[kind]
 
+  const tabs = descriptor.tabs ?? []
+  const activeTabStore = useStore((s) => s.activeTab)
+  const setActiveTab = useStore((s) => s.setActiveTab)
+  const activeTabId = tabs.length > 0 ? (activeTabStore[kind] ?? tabs[0]!.id) : null
+  const activeTab = tabs.find((t) => t.id === activeTabId) ?? null
+
   const items = useMemo(() => {
     const q = search.toLowerCase().trim()
-    const filtered = q
-      ? entities.filter((e) => spec.searchText(e.value).includes(q))
-      : entities
+    let filtered = entities
+    if (activeTab) filtered = filtered.filter((e) => activeTab.predicate(e.value))
+    if (q) filtered = filtered.filter((e) => spec.searchText(e.value).includes(q))
     return filtered.map((e) => ({
       id: e.id,
       label: descriptor.listLabel(e.value),
       sublabel: descriptor.listSublabel?.(e.value),
-      badge: e.dirty ? <Dot /> : undefined,
+      badge: e.dirty ? <ColorDot color="orange" title="Unsaved changes" /> : undefined,
       error: !!e.error,
     }))
-  }, [entities, search, descriptor, spec])
+  }, [entities, search, descriptor, spec, activeTab])
 
   // Predictive prefetch: when the user hovers on a conversation item for a
   // beat, start parsing it in the background so the click feels instant.
@@ -71,7 +78,8 @@ export function ListPane() {
     const entitySpec = kindSpecs[entity.kind]
     const entityReadOnly = entitySpec.readOnly ?? false
     const canScopeMove = !entityReadOnly || (entitySpec.allowScopeMove ?? false)
-    const canDelete = !entityReadOnly
+    const entityDescriptor = descriptorFor(entity.kind)
+    const canDelete = !entityReadOnly && (entityDescriptor.canDelete ? entityDescriptor.canDelete(entity.value) : true)
     const targets = canScopeMove ? copyMoveTargets(entity, projects) : []
     const menu: ContextMenuItem[] = []
 
@@ -117,12 +125,35 @@ export function ListPane() {
   return (
     <section className="w-[340px] shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-950">
       <header className="px-3 py-2 border-b border-zinc-800 flex items-center gap-2">
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={`Search ${spec.pluralLabel.toLowerCase()}…`}
-          className="flex-1 bg-transparent outline-none px-2 py-1 text-sm placeholder:text-zinc-600"
-        />
+        <div className="flex-1 relative flex items-center">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Search ${spec.pluralLabel.toLowerCase()}…`}
+            className="w-full bg-transparent outline-none px-2 py-1 pr-6 text-sm placeholder:text-zinc-600"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch('')}
+              aria-label="Clear search"
+              title="Clear search"
+              className="absolute right-1 w-4 h-4 flex items-center justify-center text-zinc-500 hover:text-zinc-200 rounded"
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                aria-hidden
+                className="stroke-current"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              >
+                <path d="M1.5 1.5 L8.5 8.5 M8.5 1.5 L1.5 8.5" />
+              </svg>
+            </button>
+          )}
+        </div>
         {!(spec.readOnly ?? false) && !(spec.noCreate ?? false) && (
           <button
             onClick={handleNew}
@@ -133,6 +164,24 @@ export function ListPane() {
           </button>
         )}
       </header>
+      {tabs.length > 0 && (
+        <div className="flex border-b border-zinc-800 px-1">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(kind, t.id)}
+              className={cn(
+                'text-xs px-3 py-1.5 transition-colors',
+                activeTabId === t.id
+                  ? 'text-zinc-100 border-b-2 border-orange-400 -mb-px'
+                  : 'text-zinc-500 hover:text-zinc-300',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex-1 overflow-auto">
         <List
           items={items}
@@ -148,9 +197,5 @@ export function ListPane() {
       </div>
     </section>
   )
-}
-
-function Dot() {
-  return <span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block" />
 }
 

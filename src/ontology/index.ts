@@ -6,6 +6,7 @@ import { Rule } from './rule'
 import { Hook } from './hook'
 import { McpServer } from './mcp'
 import { Plugin } from './plugin'
+import { Marketplace } from './marketplace'
 import { ClaudeMd } from './claudemd'
 import { Memory } from './memory'
 import { Conversation } from './conversation'
@@ -20,6 +21,7 @@ export * from './rule'
 export * from './hook'
 export * from './mcp'
 export * from './plugin'
+export * from './marketplace'
 export * from './claudemd'
 export * from './memory'
 export * from './conversation'
@@ -120,10 +122,21 @@ export const pluginSpec: KindSpec<Plugin> = {
   schema: Plugin,
   validScopes: ['user'],
   noCreate: true,
-  idOf: (v) => `${v.name}@${v.marketplace}:${v.version}`,
+  idOf: (v) => `${v.name}@${v.marketplace}`,
   nameOf: (v) => `${v.name}@${v.marketplace}`,
   searchText: (v) =>
-    `${v.name} ${v.marketplace} ${v.version} ${v.description ?? ''} ${v.keywords.join(' ')}`.toLowerCase(),
+    `${v.name} ${v.marketplace} ${v.version ?? ''} ${v.description ?? ''} ${v.category ?? ''} ${v.keywords.join(' ')}`.toLowerCase(),
+}
+
+export const marketplaceSpec: KindSpec<Marketplace> = {
+  kind: 'marketplace',
+  label: 'Marketplace',
+  pluralLabel: 'Marketplaces',
+  schema: Marketplace,
+  validScopes: ['user'],
+  idOf: (v) => v.name,
+  nameOf: (v) => v.name,
+  searchText: (v) => `${v.name} ${typeof v.source === 'string' ? v.source : JSON.stringify(v.source)}`.toLowerCase(),
 }
 
 export const claudemdSpec: KindSpec<ClaudeMd> = {
@@ -173,6 +186,7 @@ export const kindSpecs: Record<Kind, KindSpec<any>> = {
   hook: hookSpec,
   mcp: mcpSpec,
   plugin: pluginSpec,
+  marketplace: marketplaceSpec,
   conversation: conversationSpec,
 }
 
@@ -186,6 +200,7 @@ export const allKinds: Kind[] = [
   'hook',
   'mcp',
   'plugin',
+  'marketplace',
   'conversation',
 ]
 
