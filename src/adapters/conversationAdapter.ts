@@ -1,13 +1,23 @@
 import { type Conversation } from '@/ontology'
 import { claudeProjectEncoding } from '@/ontology'
 import type { Entity } from '@/ontology'
-import { fs, join } from './fs'
+import { fs, join, type DirEntry } from './fs'
 import type { Location } from './paths'
+import {
+  getConversationMeta,
+  setConversationMeta,
+  type ConversationMeta,
+  type FileStamp,
+} from '@/registry'
+
+const stampOf = (e: DirEntry): FileStamp => ({ mtime: e.mtime, size: e.size })
+
+const sessionIdOf = (fileName: string): string => fileName.slice(0, -6)
 
 const extractMetadata = async (
   filePath: string,
   sessionId: string,
-): Promise<{ title: string; startTime: string; lastTime: string; turnCount: number; tokenCount: number } | null> => {
+): Promise<ConversationMeta | null> => {
   try {
     const raw = await fs.readText(filePath)
     const lines = raw.split('\n').filter(Boolean)
@@ -37,40 +47,74 @@ const extractMetadata = async (
   }
 }
 
+const buildValue = (
+  sessionId: string,
+  dirName: string,
+  filePath: string,
+  meta: ConversationMeta,
+): Conversation => ({
+  sessionId,
+  title: meta.title,
+  startTime: meta.startTime,
+  lastTime: meta.lastTime,
+  turnCount: meta.turnCount,
+  tokenCount: meta.tokenCount > 0 ? meta.tokenCount : undefined,
+  projectDir: dirName,
+  filePath,
+})
+
+const buildEntity = (
+  value: Conversation,
+  scope: Entity<Conversation>['scope'],
+  dirName: string,
+  filePath: string,
+): Entity<Conversation> => ({
+  id: `conversation:${dirName}:${value.sessionId}`,
+  kind: 'conversation',
+  scope,
+  path: filePath,
+  value,
+  origin: value,
+  raw: '',
+})
+
+const skeletonMeta = (entry: DirEntry, sessionId: string): ConversationMeta => ({
+  title: sessionId,
+  startTime: '',
+  lastTime: entry.mtime > 0 ? new Date(entry.mtime).toISOString() : '',
+  turnCount: 0,
+  tokenCount: 0,
+})
+
+export interface ConversationEnrichJob {
+  path: string
+  stamp: FileStamp
+  dirName: string
+  scope: Entity<Conversation>['scope']
+}
+
 const readFromDir = async (
   projectDir: string,
   dirName: string,
   scope: Entity<Conversation>['scope'],
-): Promise<Entity<Conversation>[]> => {
-  if (!(await fs.pathExists(projectDir))) return []
-  const entries = await fs.listDir(projectDir)
-  const out: Entity<Conversation>[] = []
+): Promise<{ entities: Entity<Conversation>[]; jobs: ConversationEnrichJob[] }> => {
+  if (!(await fs.pathExists(projectDir)))
+    return { entities: [], jobs: [] }
+  const entries = (await fs.listDir(projectDir)).filter(
+    (e) => e.is_file && e.name.endsWith('.jsonl'),
+  )
+  const entities: Entity<Conversation>[] = []
+  const jobs: ConversationEnrichJob[] = []
   for (const e of entries) {
-    if (!e.is_file || !e.name.endsWith('.jsonl')) continue
-    const sessionId = e.name.slice(0, -6)
-    const meta = await extractMetadata(e.path, sessionId)
-    if (!meta) continue
-    const value: Conversation = {
-      sessionId,
-      title: meta.title,
-      startTime: meta.startTime,
-      lastTime: meta.lastTime,
-      turnCount: meta.turnCount,
-      tokenCount: meta.tokenCount > 0 ? meta.tokenCount : undefined,
-      projectDir: dirName,
-      filePath: e.path,
-    }
-    out.push({
-      id: `conversation:${dirName}:${sessionId}`,
-      kind: 'conversation',
-      scope,
-      path: e.path,
-      value,
-      origin: value,
-      raw: '',
-    })
+    const sessionId = sessionIdOf(e.name)
+    const stamp = stampOf(e)
+    const cachedMeta = getConversationMeta(e.path, stamp)
+    const meta = cachedMeta ?? skeletonMeta(e, sessionId)
+    const value = buildValue(sessionId, dirName, e.path, meta)
+    entities.push(buildEntity(value, scope, dirName, e.path))
+    if (!cachedMeta) jobs.push({ path: e.path, stamp, dirName, scope })
   }
-  return out
+  return { entities, jobs }
 }
 
 const conversationTargetPath = (
@@ -102,34 +146,60 @@ export const deleteConversation = async (
   if (await fs.pathExists(entity.path)) await fs.removePath(entity.path)
 }
 
+export interface ConversationReadResult {
+  entities: Entity<Conversation>[]
+  /** Skeleton entries that still need enrichment, with cache stamp in hand. */
+  jobs: ConversationEnrichJob[]
+}
+
 export const readConversations = async (
   loc: Location,
   home: string,
-): Promise<Entity<Conversation>[]> => {
-  const out: Entity<Conversation>[] = []
+): Promise<ConversationReadResult> => {
+  const entities: Entity<Conversation>[] = []
+  const jobs: ConversationEnrichJob[] = []
 
   if (loc.scope.type === 'project') {
     const dirName = claudeProjectEncoding(loc.root)
     const projectDir = join(home, '.claude', 'projects', dirName)
-    const entries = await readFromDir(projectDir, dirName, loc.scope)
-    out.push(...entries)
+    const res = await readFromDir(projectDir, dirName, loc.scope)
+    entities.push(...res.entities)
+    jobs.push(...res.jobs)
   } else {
     const projectsDir = join(home, '.claude', 'projects')
     if (await fs.pathExists(projectsDir)) {
-      const dirs = await fs.listDir(projectsDir)
-      await Promise.all(
-        dirs
-          .filter((d) => d.is_dir)
-          .map(async (d) => {
-            const entries = await readFromDir(d.path, d.name, loc.scope)
-            out.push(...entries)
-          }),
+      const dirs = (await fs.listDir(projectsDir)).filter((d) => d.is_dir)
+      const batches = await Promise.all(
+        dirs.map((d) => readFromDir(d.path, d.name, loc.scope)),
       )
+      for (const b of batches) {
+        entities.push(...b.entities)
+        jobs.push(...b.jobs)
+      }
     }
   }
 
-  out.sort((a, b) => b.value.lastTime.localeCompare(a.value.lastTime))
-  return out
+  entities.sort((a, b) => b.value.lastTime.localeCompare(a.value.lastTime))
+  return { entities, jobs }
+}
+
+/**
+ * Parse a conversation file and build the fully-enriched Entity. Writes
+ * the derived metadata to the persistent cache under the supplied stamp
+ * so subsequent reads — across sessions — skip the parse entirely.
+ * Returns null when the file can't be read or yields no metadata.
+ */
+export const enrichConversation = async (
+  job: ConversationEnrichJob,
+): Promise<Entity<Conversation> | null> => {
+  const sessionId = sessionIdOf(
+    job.path.replace(/\\/g, '/').split('/').pop() ?? '',
+  )
+  const meta = await extractMetadata(job.path, sessionId)
+  if (!meta) return null
+  setConversationMeta(job.path, job.stamp, meta)
+  const value = buildValue(sessionId, job.dirName, job.path, meta)
+  return buildEntity(value, job.scope, job.dirName, job.path)
 }
 
 export interface ToolUse {

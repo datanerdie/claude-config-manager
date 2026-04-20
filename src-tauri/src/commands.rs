@@ -12,6 +12,25 @@ pub struct DirEntry {
     pub path: String,
     pub is_dir: bool,
     pub is_file: bool,
+    /// mtime in milliseconds since UNIX epoch; 0 if unavailable.
+    pub mtime: u64,
+    /// File size in bytes; 0 if unavailable or if this is a directory.
+    pub size: u64,
+}
+
+async fn stamp_for(e: &tokio::fs::DirEntry, is_file: bool) -> (u64, u64) {
+    let meta = match e.metadata().await {
+        Ok(m) => m,
+        Err(_) => return (0, 0),
+    };
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let size = if is_file { meta.len() } else { 0 };
+    (mtime, size)
 }
 
 #[derive(Serialize, Clone)]
@@ -105,11 +124,14 @@ pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
             Ok(ft) => ft,
             Err(_) => continue,
         };
+        let (mtime, size) = stamp_for(&e, ft.is_file()).await;
         entries.push(DirEntry {
             name: e.file_name().to_string_lossy().into_owned(),
             path: e.path().to_string_lossy().into_owned(),
             is_dir: ft.is_dir(),
             is_file: ft.is_file(),
+            mtime,
+            size,
         });
     }
     Ok(entries)
@@ -147,17 +169,124 @@ fn walk<'a>(
                 Err(_) => continue,
             };
             let p = e.path();
+            let (mtime, size) = stamp_for(&e, ft.is_file()).await;
             out.push(DirEntry {
                 name: e.file_name().to_string_lossy().into_owned(),
                 path: p.to_string_lossy().into_owned(),
                 is_dir: ft.is_dir(),
                 is_file: ft.is_file(),
+                mtime,
+                size,
             });
             if ft.is_dir() {
                 walk(&p, depth + 1, max, out).await;
             }
         }
     })
+}
+
+/// Directories we never descend into during tree walks. Consolidated here so
+/// the two walkers (`scan_for_projects`, `find_files_named`) stay in lockstep.
+const IGNORED_DIRS: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    ".git",
+    ".next",
+    ".cache",
+    ".deleted",
+    "__pycache__",
+];
+
+fn is_ignored_dir(name: &str) -> bool {
+    IGNORED_DIRS.iter().any(|d| *d == name)
+}
+
+/// Parallel, gitignore-aware walk that collects every file whose name matches
+/// `name`. Each hit carries its stamp (`mtime`, `size`) so adapters can
+/// cache-hit without a follow-up stat.
+///
+/// Dramatically faster than the generic `list_dir_recursive` for targeted
+/// lookups (e.g. finding every `CLAUDE.md` in a project) because it skips
+/// `node_modules/`, `target/`, gitignored paths, etc. at the walker level
+/// rather than filtering after the fact.
+#[tauri::command]
+pub async fn find_files_named(
+    root: String,
+    name: String,
+    max_depth: Option<usize>,
+) -> Result<Vec<DirEntry>, String> {
+    let root_path = PathBuf::from(&root);
+    if !root_path.exists() {
+        return Ok(Vec::new());
+    }
+    let depth = max_depth.unwrap_or(8);
+    let target = Arc::new(name);
+    let hits: Arc<Mutex<Vec<DirEntry>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let walker = WalkBuilder::new(&root_path)
+        .max_depth(Some(depth))
+        .hidden(false)
+        .follow_links(false)
+        .git_ignore(true)
+        .git_global(false)
+        .git_exclude(false)
+        .require_git(false)
+        .filter_entry(|e| {
+            let n = e.file_name().to_str().unwrap_or("");
+            !is_ignored_dir(n)
+        })
+        .build_parallel();
+
+    walker.run(|| {
+        let hits = Arc::clone(&hits);
+        let target = Arc::clone(&target);
+        Box::new(move |result| {
+            let entry = match result {
+                Ok(e) => e,
+                Err(_) => return WalkState::Continue,
+            };
+            let path = entry.path();
+            let fname = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => return WalkState::Continue,
+            };
+            if fname != target.as_str() {
+                return WalkState::Continue;
+            }
+            let ft = match entry.file_type() {
+                Some(ft) => ft,
+                None => return WalkState::Continue,
+            };
+            if !ft.is_file() {
+                return WalkState::Continue;
+            }
+            let meta = entry.metadata().ok();
+            let mtime = meta
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
+            let hit = DirEntry {
+                name: fname.to_string(),
+                path: path.to_string_lossy().into_owned(),
+                is_dir: false,
+                is_file: true,
+                mtime,
+                size,
+            };
+            if let Ok(mut m) = hits.lock() {
+                m.push(hit);
+            }
+            WalkState::Continue
+        })
+    });
+
+    let mut guard = hits.lock().map_err(|e| e.to_string())?;
+    Ok(std::mem::take(&mut *guard))
 }
 
 #[derive(Serialize)]
@@ -190,18 +319,7 @@ pub async fn scan_for_projects(
         .require_git(false)
         .filter_entry(|e| {
             let name = e.file_name().to_str().unwrap_or("");
-            !matches!(
-                name,
-                "node_modules"
-                    | "target"
-                    | "dist"
-                    | "build"
-                    | ".git"
-                    | ".next"
-                    | ".cache"
-                    | ".deleted"
-                    | "__pycache__"
-            )
+            !is_ignored_dir(name)
         })
         .build_parallel();
 

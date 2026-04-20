@@ -4,9 +4,10 @@ import {
   claudeProjectEncoding,
   memorySlug,
 } from '@/ontology'
-import { fs, join, stripExt, readTextOrNull } from './fs'
+import { fs, join, stripExt, readTextOrNull, type DirEntry } from './fs'
 import { parse, stringify } from './frontmatter'
 import type { Location } from './paths'
+import { getCachedFile, setCachedFile, type FileStamp } from '@/registry'
 
 const scopeKey = (loc: Location) =>
   loc.scope.type === 'user' ? 'user' : loc.scope.projectId
@@ -18,6 +19,65 @@ const indexPathOf = (dir: string): string => join(dir, 'MEMORY.md')
 
 const fileNameOf = (m: Memory): string => `${memorySlug(m.name)}.md`
 
+const stampOf = (e: DirEntry): FileStamp => ({ mtime: e.mtime, size: e.size })
+
+const buildEntity = (
+  loc: Location,
+  entry: DirEntry,
+  raw: string,
+): Entity<Memory> => {
+  const fallback = stripExt(entry.name, '.md')
+  try {
+    const { data, body } = parse(raw)
+    const value = Memory.parse({
+      name: (data.name as string) ?? fallback,
+      description: (data.description as string) ?? '',
+      type: (data.type as Memory['type']) ?? 'project',
+      body,
+    })
+    return {
+      id: `memory:${scopeKey(loc)}:${fallback}`,
+      kind: 'memory',
+      scope: loc.scope,
+      path: entry.path,
+      value,
+      origin: value,
+      raw,
+    }
+  } catch (err) {
+    const empty: Memory = {
+      name: fallback,
+      description: '',
+      type: 'project',
+      body: '',
+    }
+    return {
+      id: `memory:${scopeKey(loc)}:${fallback}`,
+      kind: 'memory',
+      scope: loc.scope,
+      path: entry.path,
+      value: empty,
+      origin: empty,
+      raw,
+      error: err instanceof Error ? err.message : String(err),
+    }
+  }
+}
+
+const readOne = async (
+  loc: Location,
+  entry: DirEntry,
+): Promise<Entity<Memory> | null> => {
+  const stamp = stampOf(entry)
+  const cached = getCachedFile<Entity<Memory>>(entry.path, stamp)
+  if (cached) return cached
+  const raw = await readTextOrNull(entry.path)
+  if (raw === null) return null
+  const entity = buildEntity(loc, entry, raw)
+  if (!entity.error) setCachedFile(entry.path, stamp, entity)
+  return entity
+}
+
 export const readMemories = async (
   loc: Location,
   home: string,
@@ -26,48 +86,12 @@ export const readMemories = async (
   const dir = memoryDirOf(home, loc.root)
   if (!(await fs.pathExists(dir))) return []
   const entries = await fs.listDir(dir)
-  const out: Entity<Memory>[] = []
-  for (const e of entries) {
-    if (!e.is_file || !e.name.endsWith('.md') || e.name === 'MEMORY.md') continue
-    const raw = await readTextOrNull(e.path)
-    if (raw === null) continue
-    const fallback = stripExt(e.name, '.md')
-    try {
-      const { data, body } = parse(raw)
-      const value = Memory.parse({
-        name: (data.name as string) ?? fallback,
-        description: (data.description as string) ?? '',
-        type: (data.type as Memory['type']) ?? 'project',
-        body,
-      })
-      out.push({
-        id: `memory:${scopeKey(loc)}:${fallback}`,
-        kind: 'memory',
-        scope: loc.scope,
-        path: e.path,
-        value,
-        origin: value,
-        raw,
-      })
-    } catch (err) {
-      const empty = {
-        name: fallback,
-        description: '',
-        type: 'project',
-        body: '',
-      } as Memory
-      out.push({
-        id: `memory:${scopeKey(loc)}:${fallback}`,
-        kind: 'memory',
-        scope: loc.scope,
-        path: e.path,
-        value: empty,
-        origin: empty,
-        raw,
-        error: err instanceof Error ? err.message : String(err),
-      })
-    }
-  }
+  const candidates = entries.filter(
+    (e) => e.is_file && e.name.endsWith('.md') && e.name !== 'MEMORY.md',
+  )
+  const out = (
+    await Promise.all(candidates.map((e) => readOne(loc, e)))
+  ).filter((x): x is Entity<Memory> => x !== null)
   out.sort((a, b) => a.value.name.localeCompare(b.value.name))
   return out
 }

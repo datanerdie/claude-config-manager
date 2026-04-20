@@ -38,7 +38,7 @@ export const readAll = async (loc: Location, home: string): Promise<AnyEntity[]>
     readMarketplaces(loc, home),
     readClaudeMds(loc),
     readMemories(loc, home),
-    readConversations(loc, home),
+    readConversations(loc, home).then((r) => r.entities),
   ])
   return results.flat() as AnyEntity[]
 }
@@ -70,7 +70,7 @@ export const readByKind = async (
     case 'memory':
       return readMemories(loc, home)
     case 'conversation':
-      return readConversations(loc, home)
+      return (await readConversations(loc, home)).entities
   }
 }
 

@@ -18,6 +18,7 @@ pub fn run() {
             path_exists,
             list_dir,
             list_dir_recursive,
+            find_files_named,
             remove_path,
             ensure_dir,
             rename_path,

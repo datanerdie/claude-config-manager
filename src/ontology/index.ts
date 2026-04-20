@@ -13,6 +13,7 @@ import { Conversation } from './conversation'
 import type { Kind } from './core'
 
 export * from './core'
+export * from './schema'
 export * from './project'
 export * from './agent'
 export * from './command'

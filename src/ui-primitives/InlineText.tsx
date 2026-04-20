@@ -11,11 +11,11 @@ interface Props {
 }
 
 export function InlineText({ value, onChange, placeholder, className, multiline, monospace }: Props) {
-  const [local, setLocal] = useState(value)
+  const [local, setLocal] = useState(value ?? '')
   const ref = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null)
 
   useEffect(() => {
-    setLocal(value)
+    setLocal(value ?? '')
   }, [value])
 
   const commit = () => {

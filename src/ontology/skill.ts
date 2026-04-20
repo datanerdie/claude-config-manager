@@ -1,10 +1,11 @@
 import { z } from 'zod'
+import { LooseStringArray } from './schema'
 
 export const Skill = z.object({
   name: z.string().min(1),
   description: z.string().default(''),
   license: z.string().optional(),
-  allowedTools: z.array(z.string()).optional(),
+  allowedTools: LooseStringArray.optional(),
   body: z.string().default(''),
 })
 export type Skill = z.infer<typeof Skill>

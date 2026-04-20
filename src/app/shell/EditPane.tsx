@@ -5,7 +5,7 @@ import { Inspector, cn, type ContextMenuItem } from '@/ui-primitives'
 import type { AnyEntity, Entity, Scope } from '@/ontology'
 import { kindSpecs } from '@/ontology'
 import { referencesFrom, referrersOf, kindParticipatesInRefs, type Reference } from '@/engine'
-import { countTokens } from '@/adapters'
+import { countTokens, displayEntityPath } from '@/adapters'
 
 const fmtTokens = (n: number): string =>
   n >= 1_000_000 ? `~${(n / 1_000_000).toFixed(1)}m` : n >= 1_000 ? `~${(n / 1_000).toFixed(1)}k` : `~${n}`
@@ -92,7 +92,7 @@ export function EditPane() {
               <span className="truncate">
                 {descriptor.headerSubtitle
                   ? descriptor.headerSubtitle(entity.value)
-                  : entity.path}
+                  : displayEntityPath(entity, home, projects)}
               </span>
               {tokenCount !== null && (
                 <span className="shrink-0 text-zinc-500">{fmtTokens(tokenCount)} tokens</span>

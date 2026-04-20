@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { LooseStringArray } from './schema'
 
 export const AgentModel = z.enum(['sonnet', 'opus', 'haiku', 'inherit'])
 export type AgentModel = z.infer<typeof AgentModel>
@@ -6,7 +7,7 @@ export type AgentModel = z.infer<typeof AgentModel>
 export const Agent = z.object({
   name: z.string().min(1),
   description: z.string().default(''),
-  tools: z.array(z.string()).optional(),
+  tools: LooseStringArray.optional(),
   model: AgentModel.optional(),
   color: z.string().optional(),
   body: z.string().default(''),

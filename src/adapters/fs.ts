@@ -6,6 +6,10 @@ export interface DirEntry {
   path: string
   is_dir: boolean
   is_file: boolean
+  /** mtime in ms since UNIX epoch; 0 if unavailable. */
+  mtime: number
+  /** File size in bytes; 0 for directories or when unavailable. */
+  size: number
 }
 
 export interface FsChange {
@@ -35,6 +39,16 @@ export const fs = {
   listDir: (path: string): Promise<DirEntry[]> => invoke('list_dir', { path }),
   listDirRecursive: (path: string, maxDepth?: number): Promise<DirEntry[]> =>
     invoke('list_dir_recursive', { path, maxDepth }),
+  /**
+   * Parallel, gitignore-aware walk that returns every file whose basename
+   * equals `name`. Skips node_modules/target/.git/dist/build/etc. Prefer this
+   * over `listDirRecursive(...).filter(...)` for targeted lookups.
+   */
+  findFilesNamed: (
+    root: string,
+    name: string,
+    maxDepth?: number,
+  ): Promise<DirEntry[]> => invoke('find_files_named', { root, name, maxDepth }),
   watchPaths: (paths: string[]): Promise<void> => invoke('watch_paths', { paths }),
   unwatchAll: (): Promise<void> => invoke('unwatch_all'),
   scanForProjects: (root: string, maxDepth?: number): Promise<ProjectHit[]> =>

@@ -19,6 +19,7 @@ export function ProseEditor({ value, onChange, minHeight = '200px' }: Props) {
   useEffect(() => {
     setRead(defaultMode === 'read')
   }, [defaultMode])
+  const safe = value ?? ''
   return (
     <div className="relative rounded border border-zinc-800 bg-zinc-950">
       <div className="absolute top-1 right-1 z-10 flex gap-0.5 rounded bg-zinc-900/90 border border-zinc-800 overflow-hidden">
@@ -31,15 +32,15 @@ export function ProseEditor({ value, onChange, minHeight = '200px' }: Props) {
       </div>
       {read ? (
         <div className="md-preview px-5 py-4 overflow-auto" style={{ minHeight }}>
-          {value.trim() ? (
-            <MarkdownView value={value} />
+          {safe.trim() ? (
+            <MarkdownView value={safe} />
           ) : (
             <div className="text-zinc-600 italic text-sm">Nothing to preview.</div>
           )}
         </div>
       ) : (
         <CodeMirror
-          value={value}
+          value={safe}
           onChange={onChange}
           theme={oneDark}
           extensions={[markdown(), EditorView.lineWrapping]}

@@ -2,9 +2,12 @@ import { create } from 'zustand'
 import {
   fs,
   readByKind,
+  readConversations,
+  enrichConversation,
   writeEntity as adapterWrite,
   createEntity as adapterCreate,
   deleteEntity as adapterDelete,
+  type ConversationEnrichJob,
   type Location,
   type WriteContext,
 } from '@/adapters'
@@ -20,8 +23,10 @@ import {
   loadSettings,
   saveSettings,
   initTokenCache,
+  initPersistentCaches,
   invalidateConversation,
   invalidateToolResults,
+  invalidatePath,
 } from '@/registry'
 import {
   allKinds,
@@ -86,6 +91,12 @@ interface State {
    * or be disabled. Set semantics so concurrent ops on different targets coexist.
    */
   pendingOps: Set<string>
+  /**
+   * Kinds whose read is still in flight for the current scope. The sidebar
+   * watches this to swap the count for a spinner. `reload` marks all kinds
+   * loading on entry and clears each as its read settles.
+   */
+  loadingKinds: Set<Kind>
   /** Active tab id per kind (kinds with `tabs` on their descriptor). */
   activeTab: Record<string, string>
 }
@@ -155,6 +166,50 @@ let reloadTimer: ReturnType<typeof setTimeout> | null = null
 let saveUiTimer: ReturnType<typeof setTimeout> | null = null
 let saveSettingsTimer: ReturnType<typeof setTimeout> | null = null
 
+const withoutKind = (set: Set<Kind>, kind: Kind): Set<Kind> => {
+  const next = new Set(set)
+  next.delete(kind)
+  return next
+}
+
+const patchBucket = (
+  buckets: EntitiesByKind,
+  kind: Kind,
+  list: Entity<any>[],
+): EntitiesByKind => ({ ...buckets, [kind]: list })
+
+/** Max concurrent conversation enrichments — bounded to keep IPC humane. */
+const ENRICH_CONCURRENCY = 8
+
+/**
+ * Background pool that parses conversation files to populate title / turn /
+ * token metadata. Each completion is pushed to the store via `onEnriched` so
+ * the list updates progressively. Aborts as soon as `isCurrent` returns false
+ * (i.e. user switched scope).
+ */
+const runEnrichment = async (
+  jobs: ConversationEnrichJob[],
+  isCurrent: () => boolean,
+  onEnriched: (entity: Entity<any>) => void,
+): Promise<void> => {
+  let cursor = 0
+  const worker = async () => {
+    while (isCurrent()) {
+      const i = cursor++
+      if (i >= jobs.length) return
+      try {
+        const enriched = await enrichConversation(jobs[i]!)
+        if (!enriched || !isCurrent()) continue
+        onEnriched(enriched)
+      } catch {
+        // best-effort: a single enrichment failure shouldn't block others
+      }
+    }
+  }
+  const width = Math.min(ENRICH_CONCURRENCY, jobs.length)
+  await Promise.all(Array.from({ length: width }, worker))
+}
+
 const scheduleUiSave = (state: State) => {
   if (saveUiTimer) clearTimeout(saveUiTimer)
   saveUiTimer = setTimeout(() => {
@@ -181,13 +236,18 @@ export const useStore = create<Store>((set, get) => ({
   selections: {},
   settings: defaultSettings(),
   pendingOps: new Set<string>(),
+  loadingKinds: new Set<Kind>(),
   activeTab: {},
 
   bootstrap: async () => {
     try {
       const home = await fs.homeDir()
       set({ home })
-      await Promise.all([get().refreshProjects(), initTokenCache(home)])
+      await Promise.all([
+        get().refreshProjects(),
+        initTokenCache(home),
+        initPersistentCaches(home),
+      ])
       const ui = await loadUiState(home)
       const settings = await loadSettings(home)
       set({ settings })
@@ -203,6 +263,7 @@ export const useStore = create<Store>((set, get) => ({
       await fs.watchPaths(targets)
       await fs.onChange((ev) => {
         for (const path of ev.paths) {
+          invalidatePath(path)
           if (path.endsWith('.jsonl')) {
             invalidateConversation(path)
             invalidateToolResults(path)
@@ -228,7 +289,14 @@ export const useStore = create<Store>((set, get) => ({
       const kind = kindSupportsScope(s.kind, scope)
         ? s.kind
         : (allKindsForScope(scope)[0] ?? s.kind)
-      return { scope, kind, selectedId: null, entities: emptyBuckets(), refs: [] }
+      return {
+        scope,
+        kind,
+        selectedId: null,
+        entities: emptyBuckets(),
+        refs: [],
+        loadingKinds: new Set<Kind>(allKinds),
+      }
     })
     scheduleUiSave(get())
     void (async () => {
@@ -268,33 +336,86 @@ export const useStore = create<Store>((set, get) => ({
     const state = get()
     const ctx = resolveContext(state)
     if (!ctx) {
-      set({ entities: emptyBuckets(), refs: [], selectedId: null })
+      set({
+        entities: emptyBuckets(),
+        refs: [],
+        selectedId: null,
+        loadingKinds: new Set(),
+      })
       return
     }
-    try {
-      const buckets = emptyBuckets()
-      await Promise.all(
-        allKinds.map(async (k) => {
-          const list = await readByKind(k, ctx.loc, ctx.home)
-          ;(buckets as any)[k] = list
-        }),
-      )
-      const all = Object.values(buckets).flat() as AnyEntity[]
-      const refs = buildReferenceGraph(all)
+    const reloadScope = state.scope
+    const stillCurrent = () => scopeEq(get().scope, reloadScope)
+
+    set({ loadingKinds: new Set<Kind>(allKinds) })
+
+    const commitKind = (k: Kind, list: Entity<any>[]) => {
+      set((s) => {
+        const entities = patchBucket(s.entities, k, list)
+        return {
+          entities,
+          loadingKinds: withoutKind(s.loadingKinds, k),
+          selectedId: resolveSelection(
+            entities,
+            s.scope,
+            s.kind,
+            s.selections,
+            s.selectedId,
+          ),
+        }
+      })
+    }
+
+    const clearLoading = (k: Kind, err?: unknown) => {
       set((s) => ({
-        entities: buckets,
-        refs,
-        selectedId: resolveSelection(
-          buckets,
-          s.scope,
-          s.kind,
-          s.selections,
-          s.selectedId,
-        ),
-        lastError: null,
+        loadingKinds: withoutKind(s.loadingKinds, k),
+        lastError:
+          err === undefined
+            ? s.lastError
+            : err instanceof Error
+              ? err.message
+              : String(err),
       }))
-    } catch (e) {
-      set({ lastError: e instanceof Error ? e.message : String(e) })
+    }
+
+    let enrichJobs: ConversationEnrichJob[] = []
+
+    const tasks = allKinds.map(async (k) => {
+      try {
+        if (k === 'conversation') {
+          const { entities, jobs } = await readConversations(ctx.loc, ctx.home)
+          if (!stillCurrent()) return
+          enrichJobs = jobs
+          commitKind('conversation', entities)
+          return
+        }
+        const list = await readByKind(k, ctx.loc, ctx.home)
+        if (!stillCurrent()) return
+        commitKind(k, list)
+      } catch (e) {
+        if (!stillCurrent()) return
+        clearLoading(k, e)
+      }
+    })
+
+    await Promise.all(tasks)
+    if (!stillCurrent()) return
+
+    const all = Object.values(get().entities).flat() as AnyEntity[]
+    set({ refs: buildReferenceGraph(all), lastError: null })
+
+    if (enrichJobs.length > 0) {
+      void runEnrichment(enrichJobs, stillCurrent, (entity) => {
+        set((s) => ({
+          entities: patchBucket(
+            s.entities,
+            'conversation',
+            s.entities.conversation.map((e) =>
+              e.path === entity.path ? entity : e,
+            ),
+          ),
+        }))
+      })
     }
   },
 

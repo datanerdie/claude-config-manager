@@ -1,9 +1,48 @@
-import type { Scope } from '@/ontology'
+import type { AnyEntity, Project, Scope } from '@/ontology'
+import { claudeProjectEncoding } from '@/ontology'
 import { join } from './fs'
 
 export interface Location {
   scope: Scope
   root: string
+}
+
+const normPath = (p: string): string => p.replace(/\\/g, '/').replace(/\/+$/, '')
+
+export const relPath = (absPath: string, root: string): string => {
+  const a = normPath(absPath)
+  const r = normPath(root)
+  if (!r) return a
+  if (a === r) return '.'
+  if (a.startsWith(r + '/')) return a.slice(r.length + 1)
+  return a
+}
+
+export const displayEntityPath = (
+  entity: AnyEntity,
+  home: string,
+  projects: Project[],
+): string => {
+  const candidates: string[] = []
+  const scope = entity.scope
+  if (scope.type === 'user') {
+    candidates.push(join(home, '.claude'))
+  } else {
+    const project = projects.find((p) => p.id === scope.projectId)
+    if (project) {
+      candidates.push(
+        join(home, '.claude', 'projects', claudeProjectEncoding(project.path)),
+      )
+      candidates.push(project.path)
+    }
+  }
+  const a = normPath(entity.path)
+  let best = ''
+  for (const c of candidates) {
+    const n = normPath(c)
+    if ((a === n || a.startsWith(n + '/')) && n.length > best.length) best = n
+  }
+  return best ? relPath(entity.path, best) : a
 }
 
 export const claudeDir = (loc: Location): string => join(loc.root, '.claude')

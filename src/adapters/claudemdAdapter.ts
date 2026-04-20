@@ -1,17 +1,7 @@
 import { ClaudeMd, type Entity } from '@/ontology'
-import { fs, join, basename } from './fs'
+import { fs, join, type DirEntry } from './fs'
 import type { Location } from './paths'
-
-const IGNORED = new Set([
-  'node_modules',
-  '.git',
-  'target',
-  'dist',
-  'build',
-  '.next',
-  '.cache',
-  '.deleted',
-])
+import { getCachedFile, setCachedFile, type FileStamp } from '@/registry'
 
 const scopeKey = (loc: Location) =>
   loc.scope.type === 'user' ? 'user' : loc.scope.projectId
@@ -22,12 +12,13 @@ const rel = (root: string, path: string): string => {
   return p.startsWith(r) ? p.slice(r.length + 1) : p
 }
 
-const toEntity = async (
+const stampOf = (e: DirEntry): FileStamp => ({ mtime: e.mtime, size: e.size })
+
+const buildEntity = (
   loc: Location,
   fullPath: string,
-): Promise<Entity<ClaudeMd> | null> => {
-  const raw = await fs.readText(fullPath).catch(() => null)
-  if (raw === null) return null
+  raw: string,
+): Entity<ClaudeMd> => {
   const relPath = rel(loc.root, fullPath)
   const value = ClaudeMd.parse({ name: relPath, relPath, body: raw })
   return {
@@ -41,27 +32,45 @@ const toEntity = async (
   }
 }
 
+const readKnownPath = async (
+  loc: Location,
+  fullPath: string,
+): Promise<Entity<ClaudeMd> | null> => {
+  const raw = await fs.readText(fullPath).catch(() => null)
+  if (raw === null) return null
+  return buildEntity(loc, fullPath, raw)
+}
+
+const readFromEntry = async (
+  loc: Location,
+  entry: DirEntry,
+): Promise<Entity<ClaudeMd> | null> => {
+  const stamp = stampOf(entry)
+  const cached = getCachedFile<Entity<ClaudeMd>>(entry.path, stamp)
+  if (cached) return cached
+  const raw = await fs.readText(entry.path).catch(() => null)
+  if (raw === null) return null
+  const entity = buildEntity(loc, entry.path, raw)
+  setCachedFile(entry.path, stamp, entity)
+  return entity
+}
+
 export const readClaudeMds = async (loc: Location): Promise<Entity<ClaudeMd>[]> => {
-  const out: Entity<ClaudeMd>[] = []
   if (loc.scope.type === 'user') {
     const candidates = [
       join(loc.root, '.claude', 'CLAUDE.md'),
       join(loc.root, 'CLAUDE.md'),
     ]
-    for (const p of candidates) {
-      const entity = await toEntity(loc, p)
-      if (entity) out.push(entity)
-    }
-  } else {
-    const entries = await fs.listDirRecursive(loc.root, 4).catch(() => [])
-    for (const e of entries) {
-      if (!e.is_file || basename(e.path) !== 'CLAUDE.md') continue
-      const segs = e.path.replace(/\\/g, '/').split('/')
-      if (segs.some((s) => IGNORED.has(s))) continue
-      const entity = await toEntity(loc, e.path)
-      if (entity) out.push(entity)
-    }
+    const out = (
+      await Promise.all(candidates.map((p) => readKnownPath(loc, p)))
+    ).filter((x): x is Entity<ClaudeMd> => x !== null)
+    out.sort((a, b) => a.value.relPath.localeCompare(b.value.relPath))
+    return out
   }
+  const candidates = await fs.findFilesNamed(loc.root, 'CLAUDE.md', 4).catch(() => [])
+  const out = (
+    await Promise.all(candidates.map((e) => readFromEntry(loc, e)))
+  ).filter((x): x is Entity<ClaudeMd> => x !== null)
   out.sort((a, b) => a.value.relPath.localeCompare(b.value.relPath))
   return out
 }

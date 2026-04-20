@@ -192,6 +192,7 @@ function KindButton({
   onClick: () => void
 }) {
   const count = useStore((s) => (s.entities as any)[kind].length as number)
+  const loading = useStore((s) => s.loadingKinds.has(kind))
   return (
     <button
       onClick={onClick}
@@ -203,8 +204,26 @@ function KindButton({
       )}
     >
       <span>{kindSpecs[kind].pluralLabel}</span>
-      <span className="text-xs text-zinc-500">{count}</span>
+      {loading ? <Spinner /> : <span className="text-xs text-zinc-500">{count}</span>}
     </button>
+  )
+}
+
+function Spinner() {
+  return (
+    <svg
+      className="animate-spin text-zinc-500"
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      aria-label="loading"
+    >
+      <circle cx="12" cy="12" r="9" opacity="0.25" />
+      <path d="M21 12a9 9 0 0 0-9-9" strokeLinecap="round" />
+    </svg>
   )
 }
 

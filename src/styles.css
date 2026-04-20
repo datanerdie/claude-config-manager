@@ -71,6 +71,9 @@ body {
 }
 .md-preview > *:first-child { margin-top: 0; }
 .md-preview > *:last-child { margin-bottom: 0; }
+/* When a frontmatter panel leads the view, don't double up on spacing
+   with the following block's natural top margin — the panel owns the gap. */
+.md-preview > .frontmatter-panel + * { margin-top: 0; }
 
 .md-preview h1,
 .md-preview h2,

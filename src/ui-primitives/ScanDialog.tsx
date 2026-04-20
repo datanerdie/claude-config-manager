@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
+import { relPath } from '@/adapters'
 
 export interface ScanHit {
   path: string
@@ -122,7 +123,7 @@ export function ScanDialogHost({ onAdd }: Props) {
                     onChange={() => toggle(h.path)}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm truncate font-mono">{h.path}</div>
+                    <div className="text-sm truncate font-mono">{relPath(h.path, root)}</div>
                     <div className="text-[10px] text-zinc-500 flex gap-2 mt-0.5">
                       {h.has_claude_md && <Tag>CLAUDE.md</Tag>}
                       {h.has_claude_dir && <Tag>.claude/</Tag>}
