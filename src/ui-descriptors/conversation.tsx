@@ -4,7 +4,7 @@ import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Conversation } from '@/ontology'
 import type { UiDescriptor } from './types'
 import { parseConversationMessages, fetchToolResults, type ParsedMessage, type ToolUse } from '@/adapters'
-import { MarkdownView } from '@/ui-primitives'
+import { MarkdownView, FilePath as CopyablePath } from '@/ui-primitives'
 import { cn } from '@/ui-primitives'
 import { useShikiLang, langFromPath, tokenizeLineSync, highlightLineHtml } from '@/ui-primitives/markdown/shikiSync'
 
@@ -72,8 +72,12 @@ function ToolBadge({ children, className = '' }: { children: React.ReactNode; cl
   )
 }
 
-function FilePath({ children }: { children: React.ReactNode }) {
-  return <span className="text-[12px] font-mono text-zinc-400 break-all">{children}</span>
+function FilePath({ path, children }: { path: string; children?: React.ReactNode }) {
+  return (
+    <CopyablePath path={path} className="text-[12px] text-zinc-400 break-all">
+      {children}
+    </CopyablePath>
+  )
 }
 
 const toolPrimaryLabel = (tool: ToolUse): string => {
@@ -192,21 +196,21 @@ function ToolDetailContent({ tool }: { tool: ToolUse }) {
     case 'Read':
       return (
         <>
-          <ModalSection label="File"><FilePath>{input.file_path}</FilePath></ModalSection>
+          <ModalSection label="File"><FilePath path={input.file_path ?? ''} /></ModalSection>
           {result && <ModalSection label="Content"><CodePre content={result} /></ModalSection>}
         </>
       )
     case 'Write':
       return (
         <>
-          <ModalSection label="File"><FilePath>{input.file_path}</FilePath></ModalSection>
+          <ModalSection label="File"><FilePath path={input.file_path ?? ''} /></ModalSection>
           {input.content && <ModalSection label="Content"><CodePre content={input.content} /></ModalSection>}
         </>
       )
     case 'Edit':
       return (
         <>
-          <ModalSection label="File"><FilePath>{input.file_path}</FilePath></ModalSection>
+          <ModalSection label="File"><FilePath path={input.file_path ?? ''} /></ModalSection>
           <ModalSection label="Diff">
             <EditDiffView
               filePath={input.file_path ?? ''}
@@ -228,7 +232,7 @@ function ToolDetailContent({ tool }: { tool: ToolUse }) {
         <>
           <ModalSection label="Pattern">
             <span className="text-[12px] font-mono text-zinc-300">/{input.pattern}/</span>
-            {input.path && <span className="text-[12px] text-zinc-500 ml-2">in <FilePath>{input.path}</FilePath></span>}
+            {input.path && <span className="text-[12px] text-zinc-500 ml-2">in <FilePath path={input.path} /></span>}
           </ModalSection>
           {result && <ModalSection label="Matches"><CodePre content={result} /></ModalSection>}
         </>
@@ -236,14 +240,14 @@ function ToolDetailContent({ tool }: { tool: ToolUse }) {
     case 'Glob':
       return (
         <>
-          <ModalSection label="Pattern"><FilePath>{input.pattern}</FilePath></ModalSection>
+          <ModalSection label="Pattern"><FilePath path={input.pattern ?? ''} /></ModalSection>
           {result && <ModalSection label="Results"><CodePre content={result} /></ModalSection>}
         </>
       )
     case 'WebFetch':
       return (
         <>
-          <ModalSection label="URL"><FilePath>{input.url}</FilePath></ModalSection>
+          <ModalSection label="URL"><FilePath path={input.url ?? ''} /></ModalSection>
           {result && <ModalSection label="Content"><CodePre content={result} /></ModalSection>}
         </>
       )
@@ -306,7 +310,7 @@ function ToolDetailModal({ tool, onClose }: { tool: ToolUse; onClose: () => void
       >
         <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800 shrink-0">
           <ToolBadge className={toolBadgeClass(tool.name)}>{tool.name}</ToolBadge>
-          {label && <span className="text-[12px] font-mono text-zinc-400 truncate">{label}</span>}
+          {label && <CopyablePath path={label} className="text-[12px] text-zinc-400 truncate" />}
           <button className="ml-auto text-zinc-500 hover:text-zinc-200 transition-colors text-lg leading-none" onClick={onClose}>✕</button>
         </div>
         <div className="overflow-y-auto flex-1 p-4 space-y-4">
@@ -553,12 +557,12 @@ const ToolTimelineEntry = memo(function ToolTimelineEntry({ tool, onToolClick }:
         return (
           <>
             <span className="text-[12px] font-mono text-zinc-400">/{input.pattern}/</span>
-            {input.path && <FilePath> in {input.path}</FilePath>}
+            {input.path && <FilePath path={input.path}> in {input.path}</FilePath>}
           </>
         )
       default: {
         const label = toolPrimaryLabel(tool)
-        return label ? <FilePath>{label}</FilePath> : null
+        return label ? <FilePath path={label} /> : null
       }
     }
   })()

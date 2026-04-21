@@ -2,7 +2,12 @@
 import DownloadButtons from "./DownloadButtons.astro";
 import pkg from "../../../package.json";
 
-const version = `v${pkg.version}`;
+// Track the actual published release when present (CI injects this from the
+// latest GitHub tag); fall back to the workspace package version for local
+// dev. Mirrors the fallback used in DownloadButtons so the label and the
+// download links never disagree.
+const tag = import.meta.env.PUBLIC_LATEST_TAG ?? `v${pkg.version}`;
+const versionOnly = tag.replace(/^v/, "");
 ---
 
 <section class="relative overflow-hidden">
@@ -29,7 +34,7 @@ const version = `v${pkg.version}`;
 
     <div class="animate-fade-up delay-300 mt-10">
       <p class="mb-3 text-sm text-ink-400">
-        Latest version: <span class="font-mono text-ink-200">{pkg.version}</span>
+        Latest version: <span class="font-mono text-ink-200">{versionOnly}</span>
       </p>
       <DownloadButtons />
     </div>
@@ -43,7 +48,7 @@ const version = `v${pkg.version}`;
           <span class="h-3 w-3 rounded-full bg-ink-700"></span>
           <span class="h-3 w-3 rounded-full bg-ink-700"></span>
           <span class="ml-3 text-xs font-mono text-ink-400">CCM — Claude Code Manager</span>
-          <span class="ml-auto text-[10px] font-mono text-ink-500">live demo · {version}</span>
+          <span class="ml-auto text-[10px] font-mono text-ink-500">live demo · {tag}</span>
         </div>
 
         <div class="relative h-[520px] md:h-[640px] bg-ink-950">

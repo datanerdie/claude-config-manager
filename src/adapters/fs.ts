@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { recordSelfWrite } from './selfWrites'
 
 export interface DirEntry {
   name: string
@@ -26,16 +27,26 @@ export interface ProjectHit {
 export const fs = {
   homeDir: (): Promise<string> => invoke('home_dir'),
   readText: (path: string): Promise<string> => invoke('read_text', { path }),
-  writeText: (path: string, contents: string): Promise<void> =>
-    invoke('write_text', { path, contents }),
+  writeText: (path: string, contents: string): Promise<void> => {
+    recordSelfWrite(path)
+    return invoke('write_text', { path, contents })
+  },
   readJson: <T = unknown>(path: string): Promise<T> => invoke('read_json', { path }),
-  writeJson: (path: string, value: unknown): Promise<void> =>
-    invoke('write_json', { path, value }),
+  writeJson: (path: string, value: unknown): Promise<void> => {
+    recordSelfWrite(path)
+    return invoke('write_json', { path, value })
+  },
   pathExists: (path: string): Promise<boolean> => invoke('path_exists', { path }),
   ensureDir: (path: string): Promise<void> => invoke('ensure_dir', { path }),
-  removePath: (path: string): Promise<void> => invoke('remove_path', { path }),
-  renamePath: (from: string, to: string): Promise<void> =>
-    invoke('rename_path', { from, to }),
+  removePath: (path: string): Promise<void> => {
+    recordSelfWrite(path)
+    return invoke('remove_path', { path })
+  },
+  renamePath: (from: string, to: string): Promise<void> => {
+    recordSelfWrite(from)
+    recordSelfWrite(to)
+    return invoke('rename_path', { from, to })
+  },
   listDir: (path: string): Promise<DirEntry[]> => invoke('list_dir', { path }),
   listDirRecursive: (path: string, maxDepth?: number): Promise<DirEntry[]> =>
     invoke('list_dir_recursive', { path, maxDepth }),

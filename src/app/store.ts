@@ -7,6 +7,8 @@ import {
   writeEntity as adapterWrite,
   createEntity as adapterCreate,
   deleteEntity as adapterDelete,
+  isRecentSelfWrite,
+  kindsForPath,
   type ConversationEnrichJob,
   type Location,
   type WriteContext,
@@ -178,6 +180,23 @@ const patchBucket = (
   list: Entity<any>[],
 ): EntitiesByKind => ({ ...buckets, [kind]: list })
 
+/**
+ * Reconciles a fresh bucket read from disk with the in-memory bucket. Any
+ * entity that is currently `dirty` (unsaved user edit) is retained — the
+ * in-flight write will eventually land on disk and a later watcher event will
+ * bring the two back in sync. Without this, an external watcher event in the
+ * middle of typing would snap the editor back to the last-saved value.
+ */
+const mergeBucket = (
+  previous: Entity<any>[],
+  fresh: Entity<any>[],
+): Entity<any>[] => {
+  const dirty = new Map<string, Entity<any>>()
+  for (const e of previous) if (e.dirty) dirty.set(e.id, e)
+  if (dirty.size === 0) return fresh
+  return fresh.map((f) => dirty.get(f.id) ?? f)
+}
+
 /** Max concurrent conversation enrichments — bounded to keep IPC humane. */
 const ENRICH_CONCURRENCY = 8
 
@@ -208,6 +227,95 @@ const runEnrichment = async (
   }
   const width = Math.min(ENRICH_CONCURRENCY, jobs.length)
   await Promise.all(Array.from({ length: width }, worker))
+}
+
+/**
+ * Accumulates external change paths across watcher fires so a burst (e.g. a
+ * multi-file git operation) coalesces into a single refresh.
+ */
+const pendingRefreshPaths = new Set<string>()
+
+/**
+ * Re-reads only the kinds whose source data actually changed and commits all
+ * buckets in a single `setState` so the UI re-renders once, not eleven times.
+ * Does NOT touch `loadingKinds` — a targeted refresh is silent; the count in
+ * the sidebar goes from N to N (or N±1 for a create/delete) atomically,
+ * without flicker.
+ *
+ * Dirty entities (unsaved user edits) are preserved across the refresh via
+ * `mergeBucket`.
+ */
+const refreshKinds = async (kinds: Set<Kind>): Promise<void> => {
+  const state = useStore.getState()
+  const ctx = resolveContext(state)
+  if (!ctx) return
+  const startScope = state.scope
+  const stillCurrent = (): boolean =>
+    scopeEq(useStore.getState().scope, startScope)
+
+  let enrichJobs: ConversationEnrichJob[] = []
+  const results = await Promise.all(
+    Array.from(kinds).map(async (k) => {
+      try {
+        if (k === 'conversation') {
+          const { entities, jobs } = await readConversations(ctx.loc, ctx.home)
+          enrichJobs = jobs
+          return [k, entities] as const
+        }
+        return [k, await readByKind(k, ctx.loc, ctx.home)] as const
+      } catch {
+        return null
+      }
+    }),
+  )
+  if (!stillCurrent()) return
+
+  useStore.setState((s) => {
+    let entities = s.entities
+    for (const r of results) {
+      if (!r) continue
+      const [k, list] = r
+      entities = patchBucket(entities, k, mergeBucket(s.entities[k], list))
+    }
+    const selectedId = resolveSelection(
+      entities,
+      s.scope,
+      s.kind,
+      s.selections,
+      s.selectedId,
+    )
+    const all = Object.values(entities).flat() as AnyEntity[]
+    return { entities, selectedId, refs: buildReferenceGraph(all) }
+  })
+
+  if (enrichJobs.length > 0) {
+    void runEnrichment(enrichJobs, stillCurrent, (entity) => {
+      useStore.setState((s) => ({
+        entities: patchBucket(
+          s.entities,
+          'conversation',
+          s.entities.conversation.map((e) =>
+            e.path === entity.path ? entity : e,
+          ),
+        ),
+      }))
+    })
+  }
+}
+
+const flushPendingRefresh = async (): Promise<void> => {
+  if (pendingRefreshPaths.size === 0) return
+  const paths = Array.from(pendingRefreshPaths)
+  pendingRefreshPaths.clear()
+  const state = useStore.getState()
+  const ctx = resolveContext(state)
+  if (!ctx) return
+  const kinds = new Set<Kind>()
+  for (const p of paths) {
+    for (const k of kindsForPath(p, ctx.loc, ctx.home)) kinds.add(k)
+  }
+  if (kinds.size === 0) return
+  await refreshKinds(kinds)
 }
 
 const scheduleUiSave = (state: State) => {
@@ -262,6 +370,8 @@ export const useStore = create<Store>((set, get) => ({
       const targets = watchTargetsFor(get().scope, home, get().projects)
       await fs.watchPaths(targets)
       await fs.onChange((ev) => {
+        // Caches are path-keyed and cheap to invalidate — do it unconditionally
+        // so even suppressed self-writes don't leave stale cache entries.
         for (const path of ev.paths) {
           invalidatePath(path)
           if (path.endsWith('.jsonl')) {
@@ -269,8 +379,12 @@ export const useStore = create<Store>((set, get) => ({
             invalidateToolResults(path)
           }
         }
+        // Drop the echoes of our own writes; no refresh needed for those.
+        const external = ev.paths.filter((p) => !isRecentSelfWrite(p))
+        if (external.length === 0) return
+        for (const p of external) pendingRefreshPaths.add(p)
         if (reloadTimer) clearTimeout(reloadTimer)
-        reloadTimer = setTimeout(() => void get().reload(), 250)
+        reloadTimer = setTimeout(() => void flushPendingRefresh(), 150)
       })
       set({ ready: true })
     } catch (e) {
@@ -442,6 +556,20 @@ export const useStore = create<Store>((set, get) => ({
           const value = current?.value ?? next
           const writeCtx: WriteContext = { loc: ctx.loc, home: ctx.home }
           await adapterWrite(writeCtx, entity, value)
+          // Clear `dirty` only if no further edit landed while we were writing.
+          // If `current.value` is still what we just wrote, the user has stopped
+          // typing and the on-disk state matches memory — the orange dot can go
+          // away. If it changed, a later debounce will own the clear.
+          set((s) => {
+            const list = (s.entities as any)[entity.kind] as Entity<any>[]
+            const idx = list.findIndex((e) => e.id === entity.id)
+            if (idx < 0) return {}
+            const item = list[idx]!
+            if (!item.dirty || item.value !== value) return {}
+            const cleaned = list.slice()
+            cleaned[idx] = { ...item, dirty: false, origin: value }
+            return { entities: { ...s.entities, [entity.kind]: cleaned } }
+          })
         } catch (e) {
           set({ lastError: e instanceof Error ? e.message : String(e) })
         }
@@ -454,7 +582,7 @@ export const useStore = create<Store>((set, get) => ({
     if (!ctx) return
     try {
       await adapterCreate({ loc: ctx.loc, home: ctx.home }, kind, value)
-      await get().reload()
+      await refreshKinds(new Set([kind]))
       set({ kind })
     } catch (e) {
       set({ lastError: e instanceof Error ? e.message : String(e) })
@@ -467,7 +595,7 @@ export const useStore = create<Store>((set, get) => ({
     try {
       await adapterDelete({ loc: ctx.loc, home: ctx.home }, entity)
       if (get().selectedId === entity.id) set({ selectedId: null })
-      await get().reload()
+      await refreshKinds(new Set([entity.kind]))
     } catch (e) {
       set({ lastError: e instanceof Error ? e.message : String(e) })
     }
@@ -499,7 +627,12 @@ export const useStore = create<Store>((set, get) => ({
     if (!targetLoc) return
     try {
       await adapterCreate({ loc: targetLoc, home: state.home }, kind, value)
-      await get().reload()
+      // Only refresh if the target scope is the one currently on screen;
+      // otherwise the change is off-screen and will be picked up when the
+      // user switches to that scope.
+      if (scopeEq(target, state.scope)) {
+        await refreshKinds(new Set([kind]))
+      }
     } catch (e) {
       set({ lastError: e instanceof Error ? e.message : String(e) })
     }

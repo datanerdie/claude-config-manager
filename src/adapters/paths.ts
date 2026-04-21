@@ -1,4 +1,4 @@
-import type { AnyEntity, Project, Scope } from '@/ontology'
+import type { AnyEntity, Kind, Project, Scope } from '@/ontology'
 import { claudeProjectEncoding } from '@/ontology'
 import { join } from './fs'
 
@@ -62,3 +62,52 @@ export const installedPluginsPath = (home: string): string =>
   join(userPluginsDir(home), 'installed_plugins.json')
 export const knownMarketplacesPath = (home: string): string =>
   join(userPluginsDir(home), 'known_marketplaces.json')
+
+/**
+ * Maps a filesystem path to the set of entity kinds whose buckets a change at
+ * that path could affect. Used by the file-watcher to drive targeted reloads
+ * instead of rescanning every kind on every event.
+ *
+ * Returns an empty set for paths we don't care about (logs, caches, etc.).
+ */
+export const kindsForPath = (
+  path: string,
+  loc: Location,
+  home: string,
+): Set<Kind> => {
+  const p = normPath(path)
+  const result = new Set<Kind>()
+  const under = (prefix: string): boolean => {
+    const n = normPath(prefix)
+    return p === n || p.startsWith(n + '/')
+  }
+
+  if (under(join(claudeDir(loc), 'agents'))) result.add('agent')
+  if (under(join(claudeDir(loc), 'commands'))) result.add('command')
+  if (under(join(claudeDir(loc), 'skills'))) result.add('skill')
+  if (under(join(claudeDir(loc), 'rules'))) result.add('rule')
+
+  // settings.json + settings.local.json drive hooks; plugin entities carry an
+  // `enabled` flag persisted in settings.json too.
+  if (p === normPath(settingsPath(loc)) || p === normPath(settingsLocalPath(loc))) {
+    result.add('hook')
+    result.add('plugin')
+  }
+
+  if (p === normPath(projectMcpPath(loc))) result.add('mcp')
+  if (p === normPath(userClaudeJson(home))) result.add('mcp')
+  if (p === normPath(installedPluginsPath(home))) result.add('plugin')
+  if (p === normPath(knownMarketplacesPath(home))) result.add('marketplace')
+
+  // Memory files live under ~/.claude/projects/<encoded>/memory/*.md.
+  // Conversations live under ~/.claude/projects/<encoded>/*.jsonl.
+  const projectsRoot = normPath(join(home, '.claude', 'projects'))
+  if (under(projectsRoot)) {
+    if (p.endsWith('.md') && p.includes('/memory/')) result.add('memory')
+    if (p.endsWith('.jsonl')) result.add('conversation')
+  }
+
+  if (p.endsWith('/CLAUDE.md')) result.add('claudemd')
+
+  return result
+}

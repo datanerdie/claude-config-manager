@@ -1,4 +1,7 @@
 ---
+import pkg from "../../../package.json";
+
+const tag = import.meta.env.PUBLIC_LATEST_TAG ?? `v${pkg.version}`;
 ---
 
 <footer class="border-t border-hairline">
@@ -11,6 +14,7 @@
       </span>
       <span class="font-semibold text-ink-200">CCM</span>
       <span>— Claude Code Manager</span>
+      <span class="font-mono text-ink-500">· {tag}</span>
     </div>
     <div class="text-xs font-mono text-ink-500">
       MIT licensed · Open source

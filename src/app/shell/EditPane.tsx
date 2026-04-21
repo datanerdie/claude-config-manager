@@ -1,7 +1,7 @@
 import { useMemo, useEffect, useState, useRef } from 'react'
 import { useStore } from '@/app/store'
 import { descriptorFor } from '@/ui-descriptors'
-import { Inspector, cn, type ContextMenuItem } from '@/ui-primitives'
+import { Inspector, cn, FilePath, type ContextMenuItem } from '@/ui-primitives'
 import type { AnyEntity, Entity, Scope } from '@/ontology'
 import { kindSpecs } from '@/ontology'
 import { referencesFrom, referrersOf, kindParticipatesInRefs, type Reference } from '@/engine'
@@ -89,11 +89,13 @@ export function EditPane() {
           }
           subtitle={
             <span className="font-mono text-xs text-zinc-600 truncate flex items-center gap-2">
-              <span className="truncate">
-                {descriptor.headerSubtitle
-                  ? descriptor.headerSubtitle(entity.value)
-                  : displayEntityPath(entity, home, projects)}
-              </span>
+              {descriptor.headerSubtitle ? (
+                <span className="truncate">{descriptor.headerSubtitle(entity.value)}</span>
+              ) : (
+                <FilePath path={entity.path} className="text-xs text-zinc-600 truncate">
+                  {displayEntityPath(entity, home, projects)}
+                </FilePath>
+              )}
               {tokenCount !== null && (
                 <span className="shrink-0 text-zinc-500">{fmtTokens(tokenCount)} tokens</span>
               )}

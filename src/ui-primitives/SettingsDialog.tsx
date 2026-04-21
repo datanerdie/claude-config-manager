@@ -4,6 +4,7 @@ import type { Settings } from '@/ontology'
 import { Field } from './Field'
 import { Switch } from './Switch'
 import { cn } from './util'
+import { version as appVersion } from '../../package.json'
 
 interface SettingsDialogState {
   open: boolean
@@ -112,7 +113,7 @@ export function SettingsDialog({ settings, onChange, onCheckForUpdates }: Props)
           <Section title="About">
             <div className="text-xs text-zinc-500 space-y-1 font-mono">
               <div>ccm — Claude Code Manager</div>
-              <div>v0.1.0</div>
+              <div>v{appVersion}</div>
             </div>
           </Section>
         </div>

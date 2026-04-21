@@ -22,6 +22,7 @@ import {
 
 export * from './fs'
 export * from './paths'
+export * from './selfWrites'
 export * from './frontmatter'
 export * from './conversationAdapter'
 export * from './tokenCounter'

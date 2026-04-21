@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { create } from 'zustand'
 import { relPath } from '@/adapters'
+import { FilePath } from './FilePath'
 
 export interface ScanHit {
   path: string
@@ -87,7 +88,7 @@ export function ScanDialogHost({ onAdd }: Props) {
         <header className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
           <div className="min-w-0">
             <div className="text-sm">Discovered projects</div>
-            <div className="text-xs text-zinc-500 font-mono truncate">{root}</div>
+            <FilePath path={root} className="text-xs text-zinc-500 truncate" />
           </div>
           <div className="text-xs text-zinc-500">
             {scanning ? 'scanning…' : `${hits.length} found`}
