@@ -244,6 +244,22 @@ pub async fn rename_path(from: String, to: String) -> Result<(), String> {
     tokio::fs::rename(&safe_from, &safe_to).await.map_err(to_err)
 }
 
+/// Resolve `(is_dir, is_file)` for a directory entry, following symlinks.
+///
+/// `DirEntry::file_type` returns the symlink's own type without following,
+/// which leaves symlinked directories reported as `is_dir: false, is_file:
+/// false` — adapters then skip them. Stat the target instead so a
+/// symlinked skill or project shows up like a real one.
+async fn resolved_type(e: &tokio::fs::DirEntry, ft: &std::fs::FileType) -> (bool, bool) {
+    if ft.is_symlink() {
+        if let Ok(meta) = tokio::fs::metadata(e.path()).await {
+            return (meta.is_dir(), meta.is_file());
+        }
+        return (false, false);
+    }
+    (ft.is_dir(), ft.is_file())
+}
+
 #[tauri::command]
 pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
     let mut entries = Vec::new();
@@ -256,12 +272,13 @@ pub async fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
             Ok(ft) => ft,
             Err(_) => continue,
         };
-        let (mtime, size) = stamp_for(&e, ft.is_file()).await;
+        let (is_dir, is_file) = resolved_type(&e, &ft).await;
+        let (mtime, size) = stamp_for(&e, is_file).await;
         entries.push(DirEntry {
             name: e.file_name().to_string_lossy().into_owned(),
             path: e.path().to_string_lossy().into_owned(),
-            is_dir: ft.is_dir(),
-            is_file: ft.is_file(),
+            is_dir,
+            is_file,
             mtime,
             size,
         });
@@ -301,16 +318,17 @@ fn walk<'a>(
                 Err(_) => continue,
             };
             let p = e.path();
-            let (mtime, size) = stamp_for(&e, ft.is_file()).await;
+            let (is_dir, is_file) = resolved_type(&e, &ft).await;
+            let (mtime, size) = stamp_for(&e, is_file).await;
             out.push(DirEntry {
                 name: e.file_name().to_string_lossy().into_owned(),
                 path: p.to_string_lossy().into_owned(),
-                is_dir: ft.is_dir(),
-                is_file: ft.is_file(),
+                is_dir,
+                is_file,
                 mtime,
                 size,
             });
-            if ft.is_dir() {
+            if is_dir && !ft.is_symlink() {
                 walk(&p, depth + 1, max, out).await;
             }
         }

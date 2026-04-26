@@ -41,17 +41,16 @@ describe('scanMcpTools', () => {
     expect(refs[0]?.toName).toBe('github')
   })
 
-  // Pre-existing bug: the regex `[a-zA-Z0-9_-]+` greedily consumes the tool
-  // suffix into the server-name capture, so `mcp__github__create_pr` is
-  // recorded as server "github__create_pr" rather than "github". The
-  // deduplication then fails to collapse multiple tools under one server.
-  // Documenting actual behavior here; fix belongs in scanners.ts itself.
-  it('does not collapse multiple tools under one server (known bug)', () => {
+  it('collapses multiple tools under one server', () => {
     const refs = scanMcpTools('mcp__github__create_pr mcp__github__list_repos', 'tool')
-    expect(refs.map((r) => r.toName).sort()).toEqual([
-      'github__create_pr',
-      'github__list_repos',
-    ])
+    expect(refs).toHaveLength(1)
+    expect(refs[0]?.toName).toBe('github')
+  })
+
+  it('handles servers with single underscores', () => {
+    const refs = scanMcpTools('mcp__claude_ai_Gmail__authenticate mcp__claude_ai_Gmail__send', 'tool')
+    expect(refs).toHaveLength(1)
+    expect(refs[0]?.toName).toBe('claude_ai_Gmail')
   })
 
   it('matches bare server names without a tool suffix', () => {

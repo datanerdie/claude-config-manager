@@ -29,13 +29,22 @@ export const scanImports = (text: string): RawRef[] => {
  * `mcp__server__tool` — tool-identifier syntax used in hook matchers,
  * allowed-tools lists, and subagent tools. We only care about the server name
  * (each server can expose many tools; we collapse to one ref per server).
+ *
+ * Server names may contain single underscores (e.g. `claude_ai_Gmail`) but
+ * `__` is reserved as the server/tool separator. The regex matches
+ * `[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*` for the server so that adjacent
+ * underscores can never be absorbed into the capture — that was a previous
+ * bug that recorded "github__create_pr" as a server.
  */
 export const scanMcpTools = (
   text: string,
   via: 'tool' | 'matcher',
 ): RawRef[] => {
   if (!text) return []
-  const re = /\bmcp__([a-zA-Z0-9_-]+)(?:__[a-zA-Z0-9_.*-]+)?\b/g
+  // Trailing terminator is a lookahead rather than `\b` so wildcard patterns
+  // like `mcp__github__*` match cleanly — the `*` boundary doesn't satisfy
+  // `\b` because both sides are non-word characters.
+  const re = /\bmcp__([A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*)(?:__[A-Za-z0-9_.*-]+)?(?=\W|$)/g
   const out: RawRef[] = []
   const seen = new Set<string>()
   let m: RegExpExecArray | null
