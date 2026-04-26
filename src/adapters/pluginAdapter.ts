@@ -279,20 +279,38 @@ const failOnExit = (
   throw new Error(`${context}: ${detail}`)
 }
 
+// Plugin IDs flow into `claude plugin <verb> <id>`, which on Windows is
+// invoked through `cmd /C` — and cmd re-parses metacharacters even inside
+// arguments that Rust has already escaped. A malicious marketplace catalog
+// entry with id `evil & calc` would otherwise execute `calc`.
+//
+// Names are `name@marketplace`; both halves should match the npm-style
+// identifier shape Claude Code itself uses.
+const PLUGIN_ID_RE = /^[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+$/
+
+const assertSafePluginId = (id: string): void => {
+  if (!PLUGIN_ID_RE.test(id)) {
+    throw new Error(`refusing to invoke claude CLI with unsafe plugin id: ${JSON.stringify(id)}`)
+  }
+}
+
 /** Shell out to the `claude` CLI to install a plugin. */
 export const installPlugin = async (id: string): Promise<void> => {
+  assertSafePluginId(id)
   const result = await fs.runClaudeCli(['plugin', 'install', id])
   failOnExit(result, `claude plugin install ${id}`)
 }
 
 /** Shell out to the `claude` CLI to uninstall a plugin. */
 export const uninstallPlugin = async (id: string): Promise<void> => {
+  assertSafePluginId(id)
   const result = await fs.runClaudeCli(['plugin', 'uninstall', id])
   failOnExit(result, `claude plugin uninstall ${id}`)
 }
 
 /** Shell out to the `claude` CLI to update a plugin to its latest version. */
 export const updatePluginCli = async (id: string): Promise<void> => {
+  assertSafePluginId(id)
   const result = await fs.runClaudeCli(['plugin', 'update', id])
   failOnExit(result, `claude plugin update ${id}`)
 }

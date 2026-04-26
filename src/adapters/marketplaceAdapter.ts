@@ -62,6 +62,26 @@ const failOnExit = (
   throw new Error(`${context}: ${detail}`)
 }
 
+// On Windows, `claude` is invoked through `cmd /C`, which re-parses these
+// metacharacters even inside arguments Rust has already escaped. A
+// marketplace name or source containing them would let a malicious catalog
+// or registry file execute arbitrary commands.
+const UNSAFE_CHARS = /[\0\r\n&|^<>"%`$;]/
+
+const assertSafeCliArg = (arg: string, label: string): void => {
+  if (UNSAFE_CHARS.test(arg)) {
+    throw new Error(`refusing to invoke claude CLI: ${label} contains unsafe characters`)
+  }
+}
+
+const MARKETPLACE_NAME_RE = /^[A-Za-z0-9_.-]+$/
+
+const assertSafeMarketplaceName = (name: string): void => {
+  if (!MARKETPLACE_NAME_RE.test(name)) {
+    throw new Error(`refusing to invoke claude CLI with unsafe marketplace name: ${JSON.stringify(name)}`)
+  }
+}
+
 /**
  * Add or update a marketplace by shelling out to the `claude` CLI.
  * Editing an existing entry is a no-op — name and source are managed by claude.
@@ -80,6 +100,7 @@ export const writeMarketplace = async (
     return
   }
   const arg = sourceArg(next.source)
+  assertSafeCliArg(arg, 'marketplace source')
   const result = await fs.runClaudeCli(['plugin', 'marketplace', 'add', arg])
   failOnExit(result, `claude plugin marketplace add ${arg}`)
 }
@@ -91,11 +112,13 @@ export const deleteMarketplace = async (
 ): Promise<void> => {
   if (loc.scope.type !== 'user') return
   const name = entity.origin.name
+  assertSafeMarketplaceName(name)
   const result = await fs.runClaudeCli(['plugin', 'marketplace', 'remove', name])
   failOnExit(result, `claude plugin marketplace remove ${name}`)
 }
 
 export const refreshMarketplace = async (name: string): Promise<void> => {
+  assertSafeMarketplaceName(name)
   const result = await fs.runClaudeCli(['plugin', 'marketplace', 'update', name])
   failOnExit(result, `claude plugin marketplace update ${name}`)
 }
