@@ -421,19 +421,52 @@ pub fn unwatch_all(state: State<'_, WatcherState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Open a URL or file path in the user's default handler (browser, etc.).
-/// Platform-specific: uses `cmd /C start` on Windows, `open` on macOS, `xdg-open` on Linux.
+/// Validate that an `open_external` target is one of a small set of safe
+/// schemes. Rejects:
+/// - UNC paths (`\\host\share`) which can leak NTLM hashes on Windows
+/// - cmd.exe metacharacters (`&`, `|`, `^`, `<`, `>`, `"`, `%`) which can
+///   break out of `start` argument parsing on Windows
+/// - Anything that isn't `http://`, `https://`, or `mailto:`
+fn validate_external_target(target: &str) -> Result<(), String> {
+    if target.starts_with(r"\\") || target.starts_with("//") {
+        return Err("UNC paths are not allowed".into());
+    }
+    if target.contains(['\0', '\n', '\r']) {
+        return Err("control characters not allowed in URL".into());
+    }
+    let lower = target.to_ascii_lowercase();
+    let scheme_ok = lower.starts_with("http://")
+        || lower.starts_with("https://")
+        || lower.starts_with("mailto:");
+    if !scheme_ok {
+        return Err("only http(s) and mailto URLs may be opened externally".into());
+    }
+    if cfg!(target_os = "windows") && target.contains(['&', '|', '^', '<', '>', '"', '%']) {
+        return Err("URL contains characters disallowed on Windows".into());
+    }
+    Ok(())
+}
+
+/// Open a URL in the user's default browser.
+///
+/// Restricted to `http://`, `https://`, and `mailto:` schemes. File paths
+/// and arbitrary protocols are rejected to prevent exfiltration via UNC
+/// paths or command injection via cmd.exe metacharacter parsing on Windows.
+///
+/// On Windows, invokes `rundll32 url.dll,FileProtocolHandler <url>` instead
+/// of `cmd /C start`, sidestepping cmd's argument re-parsing entirely.
 #[tauri::command]
 pub async fn open_external(target: String) -> Result<(), String> {
+    validate_external_target(&target)?;
+
     #[cfg(target_os = "windows")]
     {
-        // `start` treats the first quoted arg as a window title, so pass an empty "".
-        let status = std::process::Command::new("cmd")
-            .args(["/C", "start", "", &target])
+        let status = std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", &target])
             .status()
             .map_err(to_err)?;
         if !status.success() {
-            return Err(format!("cmd start exited with {}", status));
+            return Err(format!("rundll32 exited with {}", status));
         }
     }
     #[cfg(target_os = "macos")]
@@ -457,6 +490,43 @@ pub async fn open_external(target: String) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_external_target;
+
+    #[test]
+    fn allows_https() {
+        assert!(validate_external_target("https://example.com").is_ok());
+    }
+
+    #[test]
+    fn allows_http_and_mailto() {
+        assert!(validate_external_target("http://example.com").is_ok());
+        assert!(validate_external_target("mailto:user@example.com").is_ok());
+    }
+
+    #[test]
+    fn rejects_unc_path() {
+        assert!(validate_external_target(r"\\attacker.com\share").is_err());
+        assert!(validate_external_target("//attacker.com/share").is_err());
+    }
+
+    #[test]
+    fn rejects_file_scheme() {
+        assert!(validate_external_target("file:///etc/passwd").is_err());
+    }
+
+    #[test]
+    fn rejects_javascript_scheme() {
+        assert!(validate_external_target("javascript:alert(1)").is_err());
+    }
+
+    #[test]
+    fn rejects_control_chars() {
+        assert!(validate_external_target("https://example.com\nrm -rf /").is_err());
+    }
 }
 
 #[derive(Serialize)]
