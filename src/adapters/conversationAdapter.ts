@@ -26,6 +26,7 @@ const extractMetadata = async (
     let lastTime = ''
     let turnCount = 0
     let tokenCount = 0
+    let malformed = 0
     for (const line of lines) {
       try {
         const obj = JSON.parse(line)
@@ -39,10 +40,16 @@ const extractMetadata = async (
           const u = obj.message.usage
           tokenCount += (u.input_tokens ?? 0) + (u.output_tokens ?? 0)
         }
-      } catch {}
+      } catch {
+        malformed++
+      }
+    }
+    if (malformed > 0) {
+      console.warn(`[conversation] ${malformed}/${lines.length} malformed JSONL line(s) in ${filePath}`)
     }
     return { title, startTime, lastTime, turnCount, tokenCount }
-  } catch {
+  } catch (err) {
+    console.warn(`[conversation] failed to read ${filePath}:`, err)
     return null
   }
 }
@@ -257,6 +264,7 @@ const parseMessagesUncached = async (filePath: string): Promise<ParsedMessage[]>
   const lines = raw.split('\n').filter(Boolean)
 
   const messages: ParsedMessage[] = []
+  let malformed = 0
   for (const line of lines) {
     try {
       const obj = JSON.parse(line)
@@ -281,7 +289,12 @@ const parseMessagesUncached = async (filePath: string): Promise<ParsedMessage[]>
         if (textBlocks.length > 0 || toolUses.length > 0)
           messages.push({ uuid: obj.uuid, role: 'assistant', timestamp: obj.timestamp, textBlocks, toolUses })
       }
-    } catch {}
+    } catch {
+      malformed++
+    }
+  }
+  if (malformed > 0) {
+    console.warn(`[conversation] ${malformed}/${lines.length} malformed JSONL line(s) in ${filePath}`)
   }
 
   return messages
@@ -323,6 +336,7 @@ const loadToolResultsUncached = async (filePath: string): Promise<Map<string, st
   const raw = await fs.readText(filePath)
   const lines = raw.split('\n').filter(Boolean)
   const results = new Map<string, string>()
+  let malformed = 0
   for (const line of lines) {
     try {
       const obj = JSON.parse(line)
@@ -333,7 +347,12 @@ const loadToolResultsUncached = async (filePath: string): Promise<Map<string, st
             results.set(c.tool_use_id, extractResultText(c))
         }
       }
-    } catch {}
+    } catch {
+      malformed++
+    }
+  }
+  if (malformed > 0) {
+    console.warn(`[conversation] ${malformed}/${lines.length} malformed JSONL line(s) in ${filePath}`)
   }
   return results
 }
