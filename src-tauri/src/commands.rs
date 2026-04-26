@@ -119,7 +119,15 @@ fn safe_path(input: &str) -> Result<PathBuf, String> {
     let canonical_root = existing
         .canonicalize()
         .map_err(|_| format!("path is not accessible: {input}"))?;
-    let resolved = canonical_root.join(tail);
+    // PathBuf::join with an empty tail appends a trailing separator on
+    // Unix, which turns a valid file path into a directory path and makes
+    // every subsequent read fail with NotADirectory. Only join when the
+    // tail actually contributes new components.
+    let resolved = if tail.as_os_str().is_empty() {
+        canonical_root
+    } else {
+        canonical_root.join(&tail)
+    };
 
     for denied in DENIED_PREFIXES {
         if resolved.starts_with(denied) {
@@ -625,6 +633,28 @@ mod tests {
         let home = dirs::home_dir().unwrap();
         let p = home.join(".claude").join("settings.json");
         assert!(safe_path(p.to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn safe_path_does_not_add_trailing_separator_for_existing_file() {
+        // Regression: PathBuf::join with an empty tail used to append "/"
+        // to existing files, turning every read into NotADirectory.
+        let tmp = std::env::temp_dir();
+        // tmp is reliably canonicalize-able and under the user; pick a real
+        // existing file inside the user's home if available, else fall back.
+        let home = dirs::home_dir().unwrap();
+        let candidate = home.join(".bashrc");
+        let probe = if candidate.exists() {
+            candidate
+        } else {
+            // Create a temp file under home so we exercise the real path.
+            let p = tmp.join(format!("ccm_probe_{}", std::process::id()));
+            std::fs::write(&p, b"x").unwrap();
+            p
+        };
+        let resolved = safe_path(probe.to_str().unwrap()).unwrap();
+        let s = resolved.to_string_lossy();
+        assert!(!s.ends_with('/'), "resolved path has trailing slash: {s}");
     }
 
     #[test]
