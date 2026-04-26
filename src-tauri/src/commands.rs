@@ -46,6 +46,117 @@ fn to_err<E: std::fmt::Display>(e: E) -> String {
     e.to_string()
 }
 
+/// Paths the app must never touch even if a config file points there.
+/// Denylist (rather than home-only allowlist) so we don't break valid
+/// projects on external mounts like `/Volumes/data/foo` on macOS.
+#[cfg(unix)]
+const DENIED_PREFIXES: &[&str] = &[
+    "/etc",
+    "/root",
+    "/proc",
+    "/sys",
+    "/dev",
+    "/boot",
+    "/usr/bin",
+    "/usr/sbin",
+    "/sbin",
+    "/bin",
+    "/System",
+    "/Library/Keychains",
+    "/private/etc",
+    "/private/var/db",
+];
+
+#[cfg(windows)]
+const DENIED_PREFIXES: &[&str] = &[
+    r"C:\Windows",
+    r"C:\Program Files",
+    r"C:\Program Files (x86)",
+    r"C:\ProgramData",
+];
+
+/// Sensitive subdirectories under the user's home — `.ssh`, cloud
+/// credentials, GPG, etc. The app legitimately writes to `~/.claude` and
+/// `~/.config/ccm`, so we explicitly enumerate the off-limits ones rather
+/// than blocking all dotfiles.
+const DENIED_HOME_SUBDIRS: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".kube",
+    ".docker",
+    ".gcloud",
+    ".config/gcloud",
+    ".password-store",
+    "Library/Keychains",
+];
+
+/// Validate a path before passing it to filesystem operations.
+///
+/// Threat model: a malicious config file (e.g. an `installPath` injected
+/// via a marketplace plugin manifest) tricking the app into reading,
+/// writing, or deleting files outside the user's intended workspace.
+///
+/// Rules:
+/// - Path must be absolute; relative paths resolve against the app CWD,
+///   which is unpredictable.
+/// - Path must not contain `..` components. Checked pre-canonicalize so
+///   non-existent paths (writes, mkdir) are still rejected.
+/// - Resolved path must not start with any denied system or sensitive
+///   home subdirectory. The deepest existing ancestor is canonicalized
+///   so symlink-based escapes are caught even when the leaf doesn't exist
+///   yet.
+fn safe_path(input: &str) -> Result<PathBuf, String> {
+    let p = Path::new(input);
+    if !p.is_absolute() {
+        return Err(format!("path must be absolute: {input}"));
+    }
+    if p.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(format!("path must not contain '..': {input}"));
+    }
+
+    let (existing, tail) = split_existing(p);
+    let canonical_root = existing
+        .canonicalize()
+        .map_err(|_| format!("path is not accessible: {input}"))?;
+    let resolved = canonical_root.join(tail);
+
+    for denied in DENIED_PREFIXES {
+        if resolved.starts_with(denied) {
+            return Err(format!("path is in a protected location: {input}"));
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        for sub in DENIED_HOME_SUBDIRS {
+            if resolved.starts_with(home.join(sub)) {
+                return Err(format!("path is in a protected location: {input}"));
+            }
+        }
+    }
+    Ok(resolved)
+}
+
+/// Walk up `p` until we find a component that exists; return that prefix
+/// plus the trailing components that don't exist yet. Lets safe_path
+/// canonicalize symlinks in the existing portion even when the leaf is
+/// being newly created.
+fn split_existing(p: &Path) -> (PathBuf, PathBuf) {
+    let mut prefix = p.to_path_buf();
+    let mut tail = PathBuf::new();
+    while !prefix.exists() {
+        let Some(name) = prefix.file_name().map(|n| n.to_owned()) else {
+            break;
+        };
+        let mut new_tail = PathBuf::from(name);
+        new_tail.push(&tail);
+        tail = new_tail;
+        if !prefix.pop() {
+            break;
+        }
+    }
+    (prefix, tail)
+}
+
 #[tauri::command]
 pub fn home_dir() -> Result<String, String> {
     dirs::home_dir()
@@ -55,61 +166,74 @@ pub fn home_dir() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn read_text(path: String) -> Result<String, String> {
-    tokio::fs::read_to_string(&path).await.map_err(to_err)
+    let safe = safe_path(&path)?;
+    tokio::fs::read_to_string(&safe).await.map_err(to_err)
 }
 
 #[tauri::command]
 pub async fn write_text(path: String, contents: String) -> Result<(), String> {
-    if let Some(parent) = Path::new(&path).parent() {
+    let safe = safe_path(&path)?;
+    if let Some(parent) = safe.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(to_err)?;
     }
-    tokio::fs::write(&path, contents).await.map_err(to_err)
+    tokio::fs::write(&safe, contents).await.map_err(to_err)
 }
 
 #[tauri::command]
 pub async fn read_json(path: String) -> Result<serde_json::Value, String> {
-    let text = tokio::fs::read_to_string(&path).await.map_err(to_err)?;
+    let safe = safe_path(&path)?;
+    let text = tokio::fs::read_to_string(&safe).await.map_err(to_err)?;
     serde_json::from_str(&text).map_err(to_err)
 }
 
 #[tauri::command]
 pub async fn write_json(path: String, value: serde_json::Value) -> Result<(), String> {
-    if let Some(parent) = Path::new(&path).parent() {
+    let safe = safe_path(&path)?;
+    if let Some(parent) = safe.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(to_err)?;
     }
     let text = serde_json::to_string_pretty(&value).map_err(to_err)?;
-    tokio::fs::write(&path, text).await.map_err(to_err)
+    tokio::fs::write(&safe, text).await.map_err(to_err)
 }
 
 #[tauri::command]
 pub async fn path_exists(path: String) -> Result<bool, String> {
-    Ok(tokio::fs::try_exists(&path).await.unwrap_or(false))
+    // Existence probes don't reveal contents; still validate to avoid
+    // turning this into a primitive for mapping the filesystem.
+    let safe = match safe_path(&path) {
+        Ok(p) => p,
+        Err(_) => return Ok(false),
+    };
+    Ok(tokio::fs::try_exists(&safe).await.unwrap_or(false))
 }
 
 #[tauri::command]
 pub async fn ensure_dir(path: String) -> Result<(), String> {
-    tokio::fs::create_dir_all(&path).await.map_err(to_err)
+    let safe = safe_path(&path)?;
+    tokio::fs::create_dir_all(&safe).await.map_err(to_err)
 }
 
 #[tauri::command]
 pub async fn remove_path(path: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
-    if !p.exists() {
+    let safe = safe_path(&path)?;
+    if !safe.exists() {
         return Ok(());
     }
-    if p.is_dir() {
-        tokio::fs::remove_dir_all(&p).await.map_err(to_err)
+    if safe.is_dir() {
+        tokio::fs::remove_dir_all(&safe).await.map_err(to_err)
     } else {
-        tokio::fs::remove_file(&p).await.map_err(to_err)
+        tokio::fs::remove_file(&safe).await.map_err(to_err)
     }
 }
 
 #[tauri::command]
 pub async fn rename_path(from: String, to: String) -> Result<(), String> {
-    if let Some(parent) = Path::new(&to).parent() {
+    let safe_from = safe_path(&from)?;
+    let safe_to = safe_path(&to)?;
+    if let Some(parent) = safe_to.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(to_err)?;
     }
-    tokio::fs::rename(&from, &to).await.map_err(to_err)
+    tokio::fs::rename(&safe_from, &safe_to).await.map_err(to_err)
 }
 
 #[tauri::command]
@@ -494,7 +618,43 @@ pub async fn open_external(target: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_external_target;
+    use super::{safe_path, validate_external_target};
+
+    #[test]
+    fn safe_path_allows_home_subpath() {
+        let home = dirs::home_dir().unwrap();
+        let p = home.join(".claude").join("settings.json");
+        assert!(safe_path(p.to_str().unwrap()).is_ok());
+    }
+
+    #[test]
+    fn safe_path_rejects_relative() {
+        assert!(safe_path("relative/path").is_err());
+        assert!(safe_path(".claude/settings.json").is_err());
+    }
+
+    #[test]
+    fn safe_path_rejects_parent_dir() {
+        let home = dirs::home_dir().unwrap();
+        let p = home.join("..").join("etc").join("passwd");
+        assert!(safe_path(p.to_str().unwrap()).is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn safe_path_rejects_system_dirs() {
+        assert!(safe_path("/etc/passwd").is_err());
+        assert!(safe_path("/usr/bin/sh").is_err());
+        assert!(safe_path("/sbin/init").is_err());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn safe_path_rejects_ssh_dir() {
+        let home = dirs::home_dir().unwrap();
+        let ssh = home.join(".ssh").join("id_rsa");
+        assert!(safe_path(ssh.to_str().unwrap()).is_err());
+    }
 
     #[test]
     fn allows_https() {
